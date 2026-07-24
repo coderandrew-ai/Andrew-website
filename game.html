@@ -1,118 +1,741 @@
 <!DOCTYPE html>
 <html lang="en">
 <head>
-    <meta charset="UTF-8">
-    <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>Gnome Garden Defense - Play Game</title>
-    <style>
-        body {
-            margin: 0;
-            padding: 20px;
-            background: linear-gradient(135deg, #5C4033 0%, #2C2C2C 100%);
-            font-family: Arial, sans-serif;
-            text-align: center;
-            color: #fff;
-            min-height: 100vh;
-        }
-        .game-header {
-            margin-bottom: 30px;
-        }
-        .game-header h1 {
-            color: #4C9A2A;
-            margin-bottom: 10px;
-            font-size: 2.5em;
-        }
-        .game-header p {
-            color: #ddd;
-            font-size: 1.1em;
-        }
-        .instructions-box {
-            background: rgba(76, 154, 42, 0.2);
-            border: 2px solid #4C9A2A;
-            padding: 20px;
-            border-radius: 10px;
-            margin: 20px auto;
-            max-width: 600px;
-            text-align: left;
-            color: #ddd;
-        }
-        .instructions-box h2 {
-            color: #4C9A2A;
-            text-align: center;
-        }
-        .instructions-box ul {
-            list-style: none;
-            padding: 0;
-        }
-        .instructions-box li {
-            margin: 10px 0;
-            padding-left: 25px;
-            position: relative;
-        }
-        .instructions-box li:before {
-            content: "🎮";
-            position: absolute;
-            left: 0;
-        }
-        .back-link {
-            display: inline-block;
-            margin-top: 20px;
-            padding: 12px 24px;
-            background: #ff6b35;
-            color: white;
-            text-decoration: none;
-            border-radius: 5px;
-            font-weight: bold;
-            transition: background 0.3s;
-        }
-        .back-link:hover {
-            background: #ff5520;
-        }
-        .note {
-            background: rgba(255, 215, 0, 0.1);
-            border: 2px solid #ffd700;
-            padding: 15px;
-            border-radius: 5px;
-            margin: 20px auto;
-            max-width: 600px;
-            font-size: 14px;
-        }
-    </style>
+<meta charset="UTF-8">
+<title>Gnome Garden Defense</title>
+<style>
+    /* Basic layout */
+    body {
+        margin: 0;
+        font-family: system-ui, sans-serif;
+        background: #5C4033; /* soil */
+        color: #f5f5f5;
+        display: flex;
+        flex-direction: column;
+        align-items: center;
+        justify-content: flex-start;
+        height: 100vh;
+        user-select: none;
+        touch-action: manipulation;
+    }
+
+    #hud {
+        width: 100%;
+        max-width: 640px;
+        display: flex;
+        justify-content: space-between;
+        padding: 8px 12px;
+        box-sizing: border-box;
+        background: rgba(0,0,0,0.3);
+        font-size: 14px;
+    }
+
+    #hud span {
+        margin-right: 12px;
+    }
+
+    #saltButton {
+        padding: 4px 10px;
+        border-radius: 4px;
+        border: 1px solid #fff;
+        background: #8E6FB8; /* slug purple */
+        color: #fff;
+        cursor: pointer;
+        font-size: 13px;
+    }
+
+    #saltButton.cooldown {
+        opacity: 0.4;
+        cursor: default;
+    }
+
+    #hud {
+        align-items: center;
+        gap: 8px;
+        flex-wrap: wrap;
+    }
+
+    .towerTypeButton {
+        margin-left: 6px;
+        padding: 4px 10px;
+        border-radius: 4px;
+        border: 1px solid rgba(255,255,255,0.75);
+        background: #4A7A23;
+        color: #fff;
+        cursor: pointer;
+        font-size: 13px;
+        transition: transform 0.15s ease, background 0.15s ease, border-color 0.15s ease;
+    }
+
+    .towerTypeButton:hover {
+        transform: translateY(-1px);
+        background: #66A125;
+    }
+
+    .towerTypeButton.selected {
+        background: #F2B134;
+        color: #2C2C2C;
+        border-color: #fff;
+    }
+
+    #saltButton {
+        transition: transform 0.15s ease, opacity 0.15s ease;
+    }
+
+    #saltButton:hover:not(.cooldown) {
+        transform: translateY(-1px);
+    }
+
+    #gameContainer {
+        position: relative;
+        width: 640px;
+        max-width: 100vw;
+        height: 480px;
+        max-height: calc(100vh - 80px);
+        margin-top: 4px;
+        background: #5C4033;
+        overflow: hidden;
+    }
+
+    canvas {
+        width: 100%;
+        height: 100%;
+        background: #5C4033;
+        display: block;
+        touch-action: none;
+    }
+
+    .overlay {
+        position: absolute;
+        inset: 0;
+        background: rgba(0,0,0,0.7);
+        display: flex;
+        flex-direction: column;
+        align-items: center;
+        justify-content: center;
+        text-align: center;
+        padding: 16px;
+        box-sizing: border-box;
+        overflow-y: auto;
+    }
+
+    .overlay h1 {
+        margin-bottom: 8px;
+    }
+
+    .overlay p {
+        margin: 4px 0;
+        font-size: 14px;
+    }
+
+    .overlay button {
+        margin-top: 12px;
+        padding: 8px 16px;
+        border-radius: 4px;
+        border: none;
+        background: #4C9A2A; /* leaf green */
+        color: #fff;
+        font-size: 15px;
+        cursor: pointer;
+    }
+
+    .overlay button:hover {
+        background: #3a8620;
+    }
+
+    .small {
+        font-size: 12px;
+        opacity: 0.85;
+    }
+
+    .back-button {
+        position: absolute;
+        top: 10px;
+        left: 10px;
+        padding: 8px 12px;
+        background: #ff6b35;
+        color: white;
+        border: none;
+        border-radius: 4px;
+        cursor: pointer;
+        font-size: 14px;
+        font-weight: bold;
+        z-index: 200;
+    }
+
+    .back-button:hover {
+        background: #ff5520;
+    }
+</style>
 </head>
 <body>
-    <div class="game-header">
+<button class="back-button" onclick="window.location.href='index.html';">← Back</button>
+
+<div id="hud">
+    <span>Wave: <span id="waveDisplay">0</span>/<span id="maxWaveDisplay">30</span></span>
+    <span>Type: <span id="waveTypeDisplay">Normal</span></span>
+    <span>Coins: <span id="coinDisplay">0</span></span>
+    <span>Leaks: <span id="leakDisplay">0</span>/10</span>
+    <button id="saltButton">Salt storm (S)</button>
+    <button id="fireButton">Fire storm (F)</button>
+    <button id="towerTypeStandard" class="towerTypeButton selected">Standard</button>
+    <button id="towerTypeSplash" class="towerTypeButton">Splash</button>
+    <button id="towerTypeFrost" class="towerTypeButton">Frost</button>
+    <button id="towerTypeAir" class="towerTypeButton">Anti-air</button>
+    <button id="towerTypeFire" class="towerTypeButton">Fire</button>
+    <button id="towerTypeSniper" class="towerTypeButton">Sniper</button>
+    <button id="towerTypeMachine" class="towerTypeButton">Machine gun</button>
+</div>
+<div id="gameContainer">
+    <canvas id="gameCanvas" width="640" height="480"></canvas>
+
+    <!-- Start screen -->
+    <div id="startOverlay" class="overlay">
         <h1>🍄 Gnome Garden Defense 🎮</h1>
-        <p>Build gnomes to defend your cabbage from hungry slugs!</p>
+        <p>Garden gnomes defend your cabbage from hungry slugs.</p>
+        <p><strong>Controls</strong></p>
+        <p class="small">
+            • Choose a gnome type then click/tap empty soil: place a gnome (cost varies by type)<br>
+            • Standard is cheapest, splash and frost cost more, fire costs the most.<br>
+            • Click / tap a gnome: upgrade it (cost 25 coins, stronger attack)<br>
+            • Press <strong>S</strong> or tap Salt storm button: damage all slugs (20s cooldown)<br>
+            • Press <strong>F</strong> or tap Fire storm button: heavy fire damage to all slugs (30s cooldown)
+        </p>
+        <p class="small">
+            • Standard: fast single shots<br>
+            • Splash: area damage around impact<br>
+            • Frost: slows slugs for a short time<br>
+            • Fire: burns slugs over time<br>
+            • Anti-air: hits flying slugs only<br>
+            • Sniper: high-damage long-range shots<br>
+            • Machine gun: very fast firing rate
+        </p>
+        <p class="small">
+            • Boss waves arrive later with heavy, slow slug champions.
+        </p>
+        <p class="small">
+            Win: Survive all 30 waves.<br>
+            Lose: 10 slugs reach the cabbage.
+        </p>
+        <button id="startButton">Start defending!</button>
     </div>
 
-    <div class="note">
-        <strong>📝 To Play the Full Game Locally:</strong>
-        <p>1. Open VS Code with your Andrew-website folder</p>
-        <p>2. Create a file called <code>gnometowerdefense.html</code></p>
-        <p>3. Paste the full Gnome Garden Defense game code into it</p>
-        <p>4. Right-click on the file → "Open with Live Server"</p>
-        <p>5. Play the complete game! 🚀</p>
+    <!-- Game over screen -->
+    <div id="gameOverOverlay" class="overlay" style="display:none;">
+        <h1>Game Over</h1>
+        <p>The slugs feasted on your cabbage...</p>
+        <p class="small">Tip: Place gnomes near corners and upgrade them early.</p>
+        <button id="retryButton">Try again</button>
     </div>
 
-    <div class="instructions-box">
-        <h2>Game Features</h2>
-        <ul>
-            <li><strong>7 Tower Types:</strong> Standard, Splash, Frost, Fire, Anti-air, Sniper, Machine gun</li>
-            <li><strong>30 Challenging Waves:</strong> Normal, Fast, Shielded, Boss, and Flying slugs</li>
-            <li><strong>Special Abilities:</strong> Salt Storm and Fire Storm</li>
-            <li><strong>Tower Upgrades:</strong> Boost your defenses with 3 upgrade levels</li>
-            <li><strong>Hard Mode:</strong> Limited coins and fast-paced gameplay</li>
-        </ul>
+    <!-- Win screen -->
+    <div id="winOverlay" class="overlay" style="display:none;">
+        <h1>🎉 You Saved the Patch!</h1>
+        <p>The gnomes held the line through all 30 waves.</p>
+        <p class="small">Hard mode beaten—nicely defended all 30 waves!</p>
+        <button id="winRetryButton">Play again</button>
     </div>
+</div>
 
-    <a href="index.html" class="back-link">← Back to Website</a>
+<script>
+/*
+    Gnome Garden Defense
+    Assumptions:
+    - Grid-based path on a 10x7 tile board (64x64px tiles).
+    - Towers (gnomes) can be placed only on non-path tiles.
+    - HARD difficulty: fast waves, limited starting coins (40),
+      slugs gain health and armor over waves.
+*/
 
-    <script>
-        console.log("🎮 Gnome Garden Defense Game");
-        console.log("To play the full game:");
-        console.log("1. Open your game file (gnometowerdefense.html) in VS Code");
-        console.log("2. Right-click and select 'Open with Live Server'");
-        console.log("3. Enjoy the full game experience!");
-    </script>
+/**********************
+ * Web Audio helpers  *
+ **********************/
+let audioCtx = null;
+function ensureAudio() {
+    if (!audioCtx) {
+        audioCtx = new (window.AudioContext || window.webkitAudioContext)();
+    }
+}
+
+function playBeep(freq, duration, type = 'square', volume = 0.2) {
+    ensureAudio();
+    const osc = audioCtx.createOscillator();
+    const gain = audioCtx.createGain();
+    osc.type = type;
+    osc.frequency.value = freq;
+    gain.gain.value = volume;
+    osc.connect(gain);
+    gain.connect(audioCtx.destination);
+    osc.start();
+    osc.stop(audioCtx.currentTime + duration);
+}
+
+function playHit() {
+    playBeep(220, 0.08, 'sawtooth', 0.25);
+}
+
+function playCoin() {
+    playBeep(880, 0.12, 'triangle', 0.25);
+}
+
+function playLose() {
+    playBeep(120, 0.6, 'square', 0.3);
+}
+
+function playWin() {
+    playBeep(660, 0.4, 'triangle', 0.3);
+}
+
+/**********************
+ * Game state         *
+ **********************/
+const canvas = document.getElementById('gameCanvas');
+const ctx = canvas.getContext('2d');
+
+const TILE_SIZE = 64;
+const GRID_COLS = 10;
+const GRID_ROWS = 7;
+
+const pathTiles = [
+    {x:0,y:3},{x:1,y:3},{x:2,y:3},{x:3,y:3},
+    {x:3,y:2},{x:3,y:1},{x:4,y:1},{x:5,y:1},
+    {x:5,y:2},{x:5,y:3},{x:6,y:3},{x:7,y:3},
+    {x:7,y:4},{x:7,y:5},{x:6,y:5},{x:5,y:5},
+    {x:4,y:5},{x:4,y:4},{x:4,y:3},{x:5,y:3},
+    {x:6,y:3},{x:7,y:3},{x:8,y:3},{x:9,y:3}
+];
+
+let towers = [];
+let slugs = [];
+let projectiles = [];
+
+let coins = 40;
+let leaks = 0;
+let currentWave = 0;
+let maxWaves = 30;
+let gameRunning = false;
+let lastSpawnTime = 0;
+let waveInProgress = false;
+let nextSlugIndex = 0;
+let selectedTowerType = 'standard';
+
+const waveConfigs = [
+    {type:'normal', count:6, delay:600},
+    {type:'normal', count:8, delay:560},
+    {type:'fast', count:10, delay:520},
+    {type:'shielded', count:9, delay:620},
+    {type:'normal', count:12, delay:500},
+    {type:'fast', count:10, delay:480},
+    {type:'shielded', count:11, delay:540},
+    {type:'normal', count:14, delay:520},
+    {type:'fast', count:12, delay:460},
+    {type:'shielded', count:13, delay:520},
+    {type:'normal', count:15, delay:500},
+    {type:'fast', count:14, delay:460},
+    {type:'shielded', count:15, delay:520},
+    {type:'boss', count:2, delay:1100},
+    {type:'fast', count:16, delay:440},
+    {type:'shielded', count:16, delay:500},
+    {type:'boss', count:3, delay:1200},
+    {type:'fast', count:18, delay:420},
+    {type:'shielded', count:18, delay:480},
+    {type:'boss', count:3, delay:1250},
+    {type:'flying', count:8, delay:780},
+    {type:'boss', count:2, delay:1400},
+    {type:'boss', count:1, delay:1600},
+    {type:'fast', count:22, delay:420},
+    {type:'shielded', count:20, delay:460},
+    {type:'boss', count:3, delay:1250},
+    {type:'flying', count:10, delay:760},
+    {type:'fast', count:24, delay:400},
+    {type:'shielded', count:22, delay:450},
+    {type:'boss', count:4, delay:1300}
+];
+
+let saltReady = true;
+let saltCooldown = 20000;
+let lastSaltTime = 0;
+let fireReady = true;
+let fireCooldown = 30000;
+let lastFireTime = 0;
+
+let lastFrameTime = performance.now();
+
+const waveDisplay = document.getElementById('waveDisplay');
+const coinDisplay = document.getElementById('coinDisplay');
+const leakDisplay = document.getElementById('leakDisplay');
+const saltButton = document.getElementById('saltButton');
+const fireButton = document.getElementById('fireButton');
+const startOverlay = document.getElementById('startOverlay');
+const gameOverOverlay = document.getElementById('gameOverOverlay');
+const winOverlay = document.getElementById('winOverlay');
+const startButton = document.getElementById('startButton');
+const retryButton = document.getElementById('retryButton');
+const winRetryButton = document.getElementById('winRetryButton');
+const towerTypeStandard = document.getElementById('towerTypeStandard');
+const towerTypeSplash = document.getElementById('towerTypeSplash');
+const towerTypeFrost = document.getElementById('towerTypeFrost');
+const towerTypeAir = document.getElementById('towerTypeAir');
+const towerTypeFire = document.getElementById('towerTypeFire');
+const towerTypeSniper = document.getElementById('towerTypeSniper');
+const towerTypeMachine = document.getElementById('towerTypeMachine');
+const waveTypeDisplay = document.getElementById('waveTypeDisplay');
+const maxWaveDisplay = document.getElementById('maxWaveDisplay');
+
+function tileFromPixel(px, py) {
+    const rect = canvas.getBoundingClientRect();
+    const x = px - rect.left;
+    const y = py - rect.top;
+    const col = Math.floor(x / (rect.width / GRID_COLS));
+    const row = Math.floor(y / (rect.height / GRID_ROWS));
+    return {col, row};
+}
+
+function isPathTile(col, row) {
+    return pathTiles.some(t => t.x === col && t.y === row);
+}
+
+function findTowerAt(col, row) {
+    return towers.find(t => t.col === col && t.row === row);
+}
+
+function getTowerCost(type) {
+    if (type === 'standard') return 15;
+    if (type === 'splash') return 22;
+    if (type === 'frost') return 22;
+    if (type === 'fire') return 24;
+    if (type === 'air') return 26;
+    if (type === 'sniper') return 32;
+    if (type === 'machine') return 28;
+    return 20;
+}
+
+function createTower(col, row) {
+    const type = selectedTowerType;
+    const base = {col, row, level: 1, type, lastShot: 0};
+    if (type === 'splash') {
+        return {...base, range: 2.0, fireRate: 1.0, damage: 10, splashRadius: 1.5};
+    }
+    if (type === 'frost') {
+        return {...base, range: 2.4, fireRate: 1.2, damage: 8, slowAmount: 0.5};
+    }
+    if (type === 'fire') {
+        return {...base, range: 2.1, fireRate: 0.85, damage: 12, burnDamage: 4, burnDuration: 1000, burnRate: 4};
+    }
+    if (type === 'air') {
+        return {...base, range: 2.6, fireRate: 1.0, damage: 14, antiAir: true};
+    }
+    if (type === 'sniper') {
+        return {...base, range: 3.4, fireRate: 1.4, damage: 42, precision: true, canTargetFlying: true};
+    }
+    if (type === 'machine') {
+        return {...base, range: 2.0, fireRate: 0.25, damage: 7, burst: true};
+    }
+    return {...base, range: 2.4, fireRate: 0.7, damage: 14};
+}
+
+function upgradeTower(tower) {
+    if (tower.type === 'splash') {
+        if (tower.level === 1) {
+            tower.level = 2; tower.range = 2.4; tower.damage = 14; tower.fireRate = 0.9; tower.splashRadius = 1.8;
+        } else if (tower.level === 2) {
+            tower.level = 3; tower.range = 2.8; tower.damage = 18; tower.fireRate = 0.8; tower.splashRadius = 2.1;
+        }
+    } else if (tower.type === 'standard') {
+        if (tower.level === 1) {
+            tower.level = 2; tower.range = 2.8; tower.damage = 22; tower.fireRate = 0.55;
+        } else if (tower.level === 2) {
+            tower.level = 3; tower.range = 3.3; tower.damage = 32; tower.fireRate = 0.45;
+        }
+    }
+}
+
+function createSlugForWave(wave) {
+    const config = waveConfigs[wave - 1] || {type:'normal', count:10, delay:600};
+    let baseHp = 35 + wave * 14;
+    let armor = Math.max(0, wave - 4);
+    let speed = 32 + wave * 3;
+    let color = '#537C2A';
+
+    if (config.type === 'fast') {
+        baseHp = Math.max(35, 28 + wave * 10);
+        speed = 68 + wave * 4;
+        color = '#A26534';
+    } else if (config.type === 'shielded') {
+        baseHp = 50 + wave * 16;
+        armor += 2;
+        speed = 30 + wave * 2;
+        color = '#4F6E8D';
+    } else if (config.type === 'boss') {
+        baseHp = 240 + wave * 44;
+        armor += 5;
+        speed = 24;
+        color = '#8A2F4B';
+    } else if (config.type === 'flying') {
+        baseHp = 30 + wave * 12;
+        armor = Math.max(0, wave - 2);
+        speed = 78 + wave * 3;
+        color = '#D38C0E';
+    }
+
+    return {
+        x: pathTiles[0].x * TILE_SIZE + TILE_SIZE/2,
+        y: pathTiles[0].y * TILE_SIZE + TILE_SIZE/2,
+        pathIndex: 0,
+        hp: baseHp,
+        maxHp: baseHp,
+        armor: armor,
+        speed: speed,
+        type: config.type,
+        color: color,
+        alive: true,
+        slowed: 1,
+        flying: config.type === 'flying'
+    };
+}
+
+function triggerSaltStorm() {
+    if (!saltReady || !gameRunning) return;
+    saltReady = false;
+    lastSaltTime = performance.now();
+    saltButton.classList.add('cooldown');
+
+    slugs.forEach(s => {
+        if (s.alive) {
+            s.hp -= 35;
+            playHit();
+            if (s.hp <= 0) {
+                s.alive = false;
+                coins += 4;
+                coinDisplay.textContent = coins;
+                playCoin();
+            }
+        }
+    });
+}
+
+function handlePointerDown(ev) {
+    ev.preventDefault();
+    const isTouch = ev.type === 'touchstart';
+    const point = isTouch ? ev.touches[0] : ev;
+    const tile = tileFromPixel(point.clientX, point.clientY);
+
+    if (!gameRunning) return;
+    if (tile.col < 0 || tile.col >= GRID_COLS || tile.row < 0 || tile.row >= GRID_ROWS) return;
+
+    const existing = findTowerAt(tile.col, tile.row);
+
+    if (existing) {
+        if (existing.level < 3 && coins >= 25) {
+            coins -= 25;
+            coinDisplay.textContent = coins;
+            upgradeTower(existing);
+            playBeep(520, 0.12, 'triangle', 0.25);
+        }
+    } else {
+        const cost = getTowerCost(selectedTowerType);
+        if (!isPathTile(tile.col, tile.row) && coins >= cost) {
+            coins -= cost;
+            coinDisplay.textContent = coins;
+            towers.push(createTower(tile.col, tile.row));
+            playBeep(360, 0.1, 'square', 0.25);
+        }
+    }
+}
+
+canvas.addEventListener('mousedown', handlePointerDown);
+canvas.addEventListener('touchstart', handlePointerDown, {passive:false});
+saltButton.addEventListener('click', triggerSaltStorm);
+fireButton.addEventListener('click', triggerFireStorm);
+towerTypeStandard.addEventListener('click', () => selectTowerType('standard'));
+towerTypeSplash.addEventListener('click', () => selectTowerType('splash'));
+towerTypeFrost.addEventListener('click', () => selectTowerType('frost'));
+towerTypeAir.addEventListener('click', () => selectTowerType('air'));
+towerTypeFire.addEventListener('click', () => selectTowerType('fire'));
+towerTypeSniper.addEventListener('click', () => selectTowerType('sniper'));
+towerTypeMachine.addEventListener('click', () => selectTowerType('machine'));
+
+document.addEventListener('keydown', (ev) => {
+    if (ev.key === 's' || ev.key === 'S') triggerSaltStorm();
+    if (ev.key === 'f' || ev.key === 'F') triggerFireStorm();
+});
+
+function selectTowerType(type) {
+    selectedTowerType = type;
+    towerTypeStandard.classList.toggle('selected', type === 'standard');
+    towerTypeSplash.classList.toggle('selected', type === 'splash');
+}
+
+function updateDisplays() {
+    waveDisplay.textContent = currentWave;
+    coinDisplay.textContent = coins;
+    leakDisplay.textContent = leaks;
+    const config = waveConfigs[currentWave - 1] || {type:'normal'};
+    waveTypeDisplay.textContent = config.type.charAt(0).toUpperCase() + config.type.slice(1);
+}
+
+function triggerFireStorm() {
+    if (!fireReady || !gameRunning) return;
+    fireReady = false;
+    lastFireTime = performance.now();
+    fireButton.classList.add('cooldown');
+
+    slugs.forEach(s => {
+        if (s.alive) {
+            s.hp -= 55;
+            playHit();
+            if (s.hp <= 0) {
+                s.alive = false;
+                coins += 4;
+                coinDisplay.textContent = coins;
+                playCoin();
+            }
+        }
+    });
+}
+
+function startNextWave() {
+    currentWave++;
+    waveDisplay.textContent = currentWave;
+    waveInProgress = true;
+    nextSlugIndex = 0;
+    lastSpawnTime = performance.now();
+}
+
+function startGame() {
+    startOverlay.style.display = 'none';
+    coins = 40;
+    leaks = 0;
+    currentWave = 0;
+    slugs = [];
+    towers = [];
+    projectiles = [];
+    gameRunning = true;
+    waveInProgress = false;
+    nextSlugIndex = 0;
+    saltReady = true;
+    lastSpawnTime = 0;
+    lastFrameTime = performance.now();
+    updateDisplays();
+    startNextWave();
+    requestAnimationFrame(gameLoop);
+}
+
+function showGameOver() {
+    gameRunning = false;
+    gameOverOverlay.style.display = 'flex';
+    startOverlay.style.display = 'none';
+    winOverlay.style.display = 'none';
+    playLose();
+}
+
+function showWin() {
+    gameRunning = false;
+    winOverlay.style.display = 'flex';
+    gameOverOverlay.style.display = 'none';
+    startOverlay.style.display = 'none';
+    playWin();
+}
+
+function update(dt) {
+    if (!gameRunning) return;
+    const now = performance.now();
+
+    if (waveInProgress) {
+        const config = waveConfigs[currentWave - 1] || {count:10, delay:600};
+        if (nextSlugIndex < config.count && now - lastSpawnTime >= config.delay) {
+            slugs.push(createSlugForWave(currentWave));
+            nextSlugIndex++;
+            lastSpawnTime = now;
+        }
+    }
+
+    slugs.forEach(slug => {
+        if (!slug.alive) return;
+        const targetIndex = Math.min(slug.pathIndex + 1, pathTiles.length - 1);
+        const targetTile = pathTiles[targetIndex];
+        const targetX = targetTile.x * TILE_SIZE + TILE_SIZE / 2;
+        const targetY = targetTile.y * TILE_SIZE + TILE_SIZE / 2;
+        const dx = targetX - slug.x;
+        const dy = targetY - slug.y;
+        const dist = Math.hypot(dx, dy);
+        
+        if (dist < 1) {
+            slug.pathIndex = targetIndex;
+            if (slug.pathIndex >= pathTiles.length - 1) {
+                slug.alive = false;
+                leaks += 1;
+                updateDisplays();
+                if (leaks >= 10) showGameOver();
+                return;
+            }
+        } else {
+            const move = (slug.speed * dt) / 1000;
+            slug.x += (dx / dist) * move;
+            slug.y += (dy / dist) * move;
+        }
+    });
+
+    if (leaks >= 10) {
+        showGameOver();
+    }
+
+    if (slugs.filter(s => s.alive).length === 0 && currentWave >= maxWaves && !waveInProgress) {
+        showWin();
+    }
+
+    if (!saltReady && now - lastSaltTime >= saltCooldown) {
+        saltReady = true;
+        saltButton.classList.remove('cooldown');
+    }
+
+    if (!fireReady && now - lastFireTime >= fireCooldown) {
+        fireReady = true;
+        fireButton.classList.remove('cooldown');
+    }
+}
+
+function draw() {
+    ctx.fillStyle = '#8B7355';
+    ctx.fillRect(0, 0, canvas.width, canvas.height);
+
+    pathTiles.forEach(tile => {
+        ctx.fillStyle = '#6B5344';
+        ctx.fillRect(tile.x * TILE_SIZE, tile.y * TILE_SIZE, TILE_SIZE, TILE_SIZE);
+    });
+
+    towers.forEach(tower => {
+        ctx.fillStyle = '#8B4513';
+        ctx.fillRect((tower.col + 0.25) * TILE_SIZE, (tower.row + 0.25) * TILE_SIZE, TILE_SIZE * 0.5, TILE_SIZE * 0.5);
+    });
+
+    slugs.forEach(slug => {
+        if (slug.alive) {
+            ctx.fillStyle = slug.color;
+            ctx.fillRect(slug.x - 8, slug.y - 8, 16, 16);
+            ctx.fillStyle = '#90EE90';
+            ctx.fillRect(slug.x - 8, slug.y - 12, (slug.hp / slug.maxHp) * 16, 3);
+        }
+    });
+}
+
+function gameLoop() {
+    if (gameRunning) {
+        const now = performance.now();
+        const dt = Math.min((now - lastFrameTime) / 1000, 0.05);
+        lastFrameTime = now;
+        update(dt);
+        draw();
+        updateDisplays();
+    }
+    requestAnimationFrame(gameLoop);
+}
+
+startButton.addEventListener('click', startGame);
+retryButton.addEventListener('click', () => location.reload());
+winRetryButton.addEventListener('click', () => location.reload());
+
+updateDisplays();
+</script>
 </body>
 </html>
