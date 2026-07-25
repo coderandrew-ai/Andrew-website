@@ -1205,12 +1205,9 @@ function gameLoop(now) {
         }
         const rawDt = Math.min((now - lastFrameTime) / 1000, MAX_DELTA_TIME);
         lastFrameTime = now;
-        // Apply speed multiplier in sub-steps to keep physics stable
-        const steps = gameSpeed > 1 ? 2 : 1;
-        const dt = rawDt * gameSpeed / steps;
-        for (let i = 0; i < steps; i++) {
-            update(dt);
-        }
+        // gameSpeed scales simulation time; cap is applied per-step via MAX_DELTA_TIME
+        const dt = rawDt * gameSpeed;
+        update(dt);
         draw();
     }
     requestAnimationFrame(gameLoop);
