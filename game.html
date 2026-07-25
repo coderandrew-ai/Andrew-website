@@ -297,6 +297,9 @@ const GRID_ROWS = 7;
 const MAX_LEAKS = 10;
 const MAX_WAVES = 30;
 const WAVE_CLEAR_DELAY = 1300;
+const MAX_DELTA_TIME = 0.05;
+const BASE_ARMOR_SCALE = 0.7;
+const MIN_DAMAGE = 1;
 
 const pathTiles = [
     {x:0,y:3},{x:1,y:3},{x:2,y:3},{x:3,y:3},
@@ -518,7 +521,7 @@ function upgradeTower(tower) {
 function createSlugForWave(wave) {
     const config = waveConfigs[wave - 1] || {type:'normal'};
     let hp = 36 + wave * 14;
-    let armor = Math.max(0, wave - 5) * 0.7;
+    let armor = Math.max(0, wave - 5) * BASE_ARMOR_SCALE;
     let speed = 34 + wave * 2.9;
     let color = '#537C2A';
     let reward = 5;
@@ -579,7 +582,7 @@ function addEffect(x, y, radius, color, lifetime = 0.22) {
 
 function damageSlug(slug, rawDamage) {
     if (!slug.alive) return false;
-    const dealt = Math.max(1, rawDamage - slug.armor);
+    const dealt = Math.max(MIN_DAMAGE, rawDamage - slug.armor);
     slug.hp -= dealt;
     if (slug.hp <= 0) {
         slug.alive = false;
@@ -1110,7 +1113,7 @@ function draw() {
 
 function gameLoop(now) {
     if (gameRunning && !gameEnded) {
-        const dt = Math.min((now - lastFrameTime) / 1000, 0.05);
+        const dt = Math.min((now - lastFrameTime) / 1000, MAX_DELTA_TIME);
         lastFrameTime = now;
         update(dt);
         draw();
