@@ -188,8 +188,8 @@
     <span>Wave: <span id="waveDisplay">0</span>/<span id="maxWaveDisplay">30</span></span>
     <span>Type: <span id="waveTypeDisplay">Normal</span></span>
     <span>Coins: <span id="coinDisplay">0</span></span>
-    <span>Health: <span id="healthDisplay">10</span></span>
-    <span>Leaks: <span id="leakDisplay">0</span>/10</span>
+    <span>Health: <span id="healthDisplay">0</span></span>
+    <span>Leaks: <span id="leakDisplay">0</span>/<span id="maxLeaksDisplay">0</span></span>
     <span>Kills: <span id="killDisplay">0</span></span>
     <span id="nextWaveDisplay"></span>
     <button id="saltButton">Salt storm (S)</button>
@@ -305,6 +305,14 @@ const MAX_WAVES = 30;
 const WAVE_CLEAR_DELAY = 1300;
 // Delta time cap is in seconds (0.05s = 50ms) to avoid simulation jumps.
 const MAX_DELTA_TIME = 0.05;
+const SLUG_WIGGLE_FREQUENCY = 10;
+const SLUG_WIGGLE_AMPLITUDE = 2;
+const FLYING_BOB_FREQUENCY = 8;
+const FLYING_BOB_PHASE_MULTIPLIER = 0.7;
+const FLYING_BOB_AMPLITUDE = 4;
+const FLYING_WING_X_OFFSET = -12;
+const FLYING_WING_Y_OFFSET = 6;
+const FLYING_WING_WIGGLE_SCALE = 0.25;
 // Armor growth multiplier applied per wave for baseline slug armor scaling.
 const WAVE_ARMOR_MULTIPLIER = 0.7;
 const WAVE_ARMOR_START_THRESHOLD = 5;
@@ -451,6 +459,7 @@ const waveDisplay = document.getElementById('waveDisplay');
 const coinDisplay = document.getElementById('coinDisplay');
 const healthDisplay = document.getElementById('healthDisplay');
 const leakDisplay = document.getElementById('leakDisplay');
+const maxLeaksDisplay = document.getElementById('maxLeaksDisplay');
 const killDisplay = document.getElementById('killDisplay');
 const nextWaveDisplay = document.getElementById('nextWaveDisplay');
 const waveTypeDisplay = document.getElementById('waveTypeDisplay');
@@ -510,6 +519,8 @@ function getTowerCenter(tower) {
     };
 }
 
+// Creates a regular polygon path centered at (cx, cy).
+// radius controls size, sides controls vertex count, rotation is an angle offset in radians.
 function drawPolygon(cx, cy, radius, sides, rotation = 0) {
     ctx.beginPath();
     for (let i = 0; i < sides; i++) {
@@ -819,6 +830,7 @@ function updateDisplays(now) {
     maxWaveDisplay.textContent = MAX_WAVES;
     coinDisplay.textContent = coins;
     leakDisplay.textContent = leaks;
+    maxLeaksDisplay.textContent = MAX_LEAKS;
     healthDisplay.textContent = health;
     killDisplay.textContent = kills;
     waveTypeDisplay.textContent = waveType;
@@ -1237,8 +1249,8 @@ function drawSlugs() {
     for (const slug of slugs) {
         if (!slug.alive) continue;
         const heading = Math.atan2(slug.dirY, slug.dirX);
-        const wiggle = Math.sin(animationTime * 10 + slug.pathIndex) * 2;
-        const yOffset = slug.flying ? Math.sin(animationTime * 8 + slug.pathIndex * 0.7) * 4 : 0;
+        const wiggle = Math.sin(animationTime * SLUG_WIGGLE_FREQUENCY + slug.pathIndex) * SLUG_WIGGLE_AMPLITUDE;
+        const yOffset = slug.flying ? Math.sin(animationTime * FLYING_BOB_FREQUENCY + slug.pathIndex * FLYING_BOB_PHASE_MULTIPLIER) * FLYING_BOB_AMPLITUDE : 0;
 
         ctx.save();
         ctx.translate(slug.x, slug.y + yOffset);
@@ -1259,9 +1271,9 @@ function drawSlugs() {
             ctx.lineWidth = 1.5;
             ctx.beginPath();
             ctx.moveTo(-4, -3);
-            ctx.lineTo(-12, -6 - wiggle * 0.25);
+            ctx.lineTo(FLYING_WING_X_OFFSET, -FLYING_WING_Y_OFFSET - wiggle * FLYING_WING_WIGGLE_SCALE);
             ctx.moveTo(-4, 3);
-            ctx.lineTo(-12, 6 + wiggle * 0.25);
+            ctx.lineTo(FLYING_WING_X_OFFSET, FLYING_WING_Y_OFFSET + wiggle * FLYING_WING_WIGGLE_SCALE);
             ctx.stroke();
         } else {
             ctx.fillStyle = 'rgba(20, 20, 20, 0.75)';
