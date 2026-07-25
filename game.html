@@ -49,6 +49,11 @@
         cursor: default;
     }
 
+    #fireButton.cooldown {
+        opacity: 0.4;
+        cursor: default;
+    }
+
     #hud {
         align-items: center;
         gap: 8px;
@@ -82,7 +87,15 @@
         transition: transform 0.15s ease, opacity 0.15s ease;
     }
 
+    #fireButton {
+        transition: transform 0.15s ease, opacity 0.15s ease;
+    }
+
     #saltButton:hover:not(.cooldown) {
+        transform: translateY(-1px);
+    }
+
+    #fireButton:hover:not(.cooldown) {
         transform: translateY(-1px);
     }
 
@@ -175,16 +188,20 @@
     <span>Wave: <span id="waveDisplay">0</span>/<span id="maxWaveDisplay">30</span></span>
     <span>Type: <span id="waveTypeDisplay">Normal</span></span>
     <span>Coins: <span id="coinDisplay">0</span></span>
+    <span>Health: <span id="healthDisplay">10</span></span>
     <span>Leaks: <span id="leakDisplay">0</span>/10</span>
+    <span>Kills: <span id="killDisplay">0</span></span>
+    <span id="nextWaveDisplay"></span>
     <button id="saltButton">Salt storm (S)</button>
     <button id="fireButton">Fire storm (F)</button>
-    <button id="towerTypeStandard" class="towerTypeButton selected">Standard</button>
-    <button id="towerTypeSplash" class="towerTypeButton">Splash</button>
-    <button id="towerTypeFrost" class="towerTypeButton">Frost</button>
-    <button id="towerTypeAir" class="towerTypeButton">Anti-air</button>
-    <button id="towerTypeFire" class="towerTypeButton">Fire</button>
-    <button id="towerTypeSniper" class="towerTypeButton">Sniper</button>
-    <button id="towerTypeMachine" class="towerTypeButton">Machine gun</button>
+    <button id="speedButton" class="towerTypeButton">2× Speed</button>
+    <button id="towerTypeStandard" class="towerTypeButton selected">Standard (15🪙)</button>
+    <button id="towerTypeSplash" class="towerTypeButton">Splash (22🪙)</button>
+    <button id="towerTypeFrost" class="towerTypeButton">Frost (22🪙)</button>
+    <button id="towerTypeAir" class="towerTypeButton">Anti-air (26🪙)</button>
+    <button id="towerTypeFire" class="towerTypeButton">Fire (24🪙)</button>
+    <button id="towerTypeSniper" class="towerTypeButton">Sniper (32🪙)</button>
+    <button id="towerTypeMachine" class="towerTypeButton">Machine gun (28🪙)</button>
 </div>
 <div id="gameContainer">
     <canvas id="gameCanvas" width="640" height="480"></canvas>
@@ -197,9 +214,11 @@
         <p class="small">
             • Choose a gnome type then click/tap empty soil: place a gnome (cost varies by type)<br>
             • Standard is cheapest, splash and frost cost more, fire costs the most.<br>
-            • Click / tap a gnome: upgrade it (cost 25 coins, stronger attack)<br>
+            • Click / tap a gnome: upgrade it (cost scales by tower + level)<br>
+            • <strong>Right-click</strong> a gnome: sell it for 60% of its total investment<br>
             • Press <strong>S</strong> or tap Salt storm button: damage all slugs (20s cooldown)<br>
-            • Press <strong>F</strong> or tap Fire storm button: heavy fire damage to all slugs (30s cooldown)
+            • Press <strong>F</strong> or tap Fire storm button: heavy fire damage to all slugs (30s cooldown)<br>
+            • Press <strong>2× Speed</strong> button or press <strong>X</strong> to toggle fast mode
         </p>
         <p class="small">
             • Standard: fast single shots<br>
@@ -224,6 +243,7 @@
     <div id="gameOverOverlay" class="overlay" style="display:none;">
         <h1>Game Over</h1>
         <p>The slugs feasted on your cabbage...</p>
+        <p id="gameOverKills" class="small"></p>
         <p class="small">Tip: Place gnomes near corners and upgrade them early.</p>
         <button id="retryButton">Try again</button>
     </div>
@@ -232,7 +252,7 @@
     <div id="winOverlay" class="overlay" style="display:none;">
         <h1>🎉 You Saved the Patch!</h1>
         <p>The gnomes held the line through all 30 waves.</p>
-        <p class="small">Hard mode beaten—nicely defended all 30 waves!</p>
+        <p id="winKills" class="small"></p>
         <button id="winRetryButton">Play again</button>
     </div>
 </div>
@@ -240,11 +260,7 @@
 <script>
 /*
     Gnome Garden Defense
-    Assumptions:
-    - Grid-based path on a 10x7 tile board (64x64px tiles).
-    - Towers (gnomes) can be placed only on non-path tiles.
-    - HARD difficulty: fast waves, limited starting coins (40),
-      slugs gain health and armor over waves.
+    Complete single-file tower defense implementation.
 */
 
 /**********************
@@ -270,21 +286,10 @@ function playBeep(freq, duration, type = 'square', volume = 0.2) {
     osc.stop(audioCtx.currentTime + duration);
 }
 
-function playHit() {
-    playBeep(220, 0.08, 'sawtooth', 0.25);
-}
-
-function playCoin() {
-    playBeep(880, 0.12, 'triangle', 0.25);
-}
-
-function playLose() {
-    playBeep(120, 0.6, 'square', 0.3);
-}
-
-function playWin() {
-    playBeep(660, 0.4, 'triangle', 0.3);
-}
+function playHit() { playBeep(220, 0.08, 'sawtooth', 0.25); }
+function playCoin() { playBeep(880, 0.12, 'triangle', 0.25); }
+function playLose() { playBeep(120, 0.6, 'square', 0.3); }
+function playWin() { playBeep(660, 0.4, 'triangle', 0.3); }
 
 /**********************
  * Game state         *
@@ -295,6 +300,16 @@ const ctx = canvas.getContext('2d');
 const TILE_SIZE = 64;
 const GRID_COLS = 10;
 const GRID_ROWS = 7;
+const MAX_LEAKS = 10;
+const MAX_WAVES = 30;
+const WAVE_CLEAR_DELAY = 1300;
+// Delta time cap is in seconds (0.05s = 50ms) to avoid simulation jumps.
+const MAX_DELTA_TIME = 0.05;
+// Armor growth multiplier applied per wave for baseline slug armor scaling.
+const WAVE_ARMOR_MULTIPLIER = 0.7;
+const WAVE_ARMOR_START_THRESHOLD = 5;
+// Minimum damage guarantees every hit always chips at least 1 HP.
+const MIN_DAMAGE = 1;
 
 const pathTiles = [
     {x:0,y:3},{x:1,y:3},{x:2,y:3},{x:3,y:3},
@@ -304,83 +319,172 @@ const pathTiles = [
     {x:4,y:5},{x:4,y:4},{x:4,y:3},{x:5,y:3},
     {x:6,y:3},{x:7,y:3},{x:8,y:3},{x:9,y:3}
 ];
+const pathPoints = pathTiles.map(tile => ({
+    x: tile.x * TILE_SIZE + TILE_SIZE / 2,
+    y: tile.y * TILE_SIZE + TILE_SIZE / 2
+}));
 
-let towers = [];
-let slugs = [];
-let projectiles = [];
-
-let coins = 40;
-let leaks = 0;
-let currentWave = 0;
-let maxWaves = 30;
-let gameRunning = false;
-let lastSpawnTime = 0;
-let waveInProgress = false;
-let nextSlugIndex = 0;
-let selectedTowerType = 'standard';
+const TOWER_DATA = {
+    standard: {
+        name: 'Standard', color: '#8B4513', projectileColor: '#f7f3c1', canTargetFlying: true,
+        levels: [
+            {range: 2.4, fireRate: 0.72, damage: 15, projectileSpeed: 280, cost: 15, upgradeCost: 24},
+            {range: 2.8, fireRate: 0.58, damage: 23, projectileSpeed: 305, upgradeCost: 36},
+            {range: 3.2, fireRate: 0.46, damage: 32, projectileSpeed: 335, upgradeCost: null}
+        ]
+    },
+    splash: {
+        name: 'Splash', color: '#4F6E8D', projectileColor: '#9dd7ff', canTargetFlying: true,
+        levels: [
+            {range: 2.0, fireRate: 1.05, damage: 11, projectileSpeed: 250, splashRadius: 1.2, cost: 22, upgradeCost: 30},
+            {range: 2.4, fireRate: 0.90, damage: 15, projectileSpeed: 270, splashRadius: 1.55, upgradeCost: 42},
+            {range: 2.8, fireRate: 0.78, damage: 20, projectileSpeed: 295, splashRadius: 1.9, upgradeCost: null}
+        ]
+    },
+    frost: {
+        name: 'Frost', color: '#4DB8FF', projectileColor: '#d8f2ff', canTargetFlying: true,
+        levels: [
+            {range: 2.45, fireRate: 1.05, damage: 8, projectileSpeed: 245, slowMultiplier: 0.6, slowDuration: 1.6, cost: 22, upgradeCost: 28},
+            {range: 2.75, fireRate: 0.90, damage: 12, projectileSpeed: 265, slowMultiplier: 0.52, slowDuration: 2.0, upgradeCost: 40},
+            {range: 3.1, fireRate: 0.78, damage: 16, projectileSpeed: 290, slowMultiplier: 0.45, slowDuration: 2.4, upgradeCost: null}
+        ]
+    },
+    fire: {
+        name: 'Fire', color: '#D35400', projectileColor: '#ff9f43', canTargetFlying: true,
+        levels: [
+            {range: 2.2, fireRate: 0.92, damage: 10, projectileSpeed: 250, burnDamage: 4, burnDuration: 2.0, burnTick: 0.5, cost: 24, upgradeCost: 34},
+            {range: 2.5, fireRate: 0.78, damage: 15, projectileSpeed: 270, burnDamage: 6, burnDuration: 2.5, burnTick: 0.5, upgradeCost: 48},
+            {range: 2.8, fireRate: 0.65, damage: 20, projectileSpeed: 295, burnDamage: 9, burnDuration: 3.0, burnTick: 0.5, upgradeCost: null}
+        ]
+    },
+    air: {
+        name: 'Anti-air', color: '#6C5CE7', projectileColor: '#d2ccff', antiAir: true,
+        levels: [
+            {range: 2.8, fireRate: 0.85, damage: 17, projectileSpeed: 320, cost: 26, upgradeCost: 34},
+            {range: 3.15, fireRate: 0.70, damage: 25, projectileSpeed: 350, upgradeCost: 48},
+            {range: 3.5, fireRate: 0.58, damage: 35, projectileSpeed: 385, upgradeCost: null}
+        ]
+    },
+    sniper: {
+        name: 'Sniper', color: '#2D3436', projectileColor: '#f4f4f4', canTargetFlying: true,
+        levels: [
+            {range: 3.6, fireRate: 1.45, damage: 44, projectileSpeed: 480, cost: 32, upgradeCost: 46},
+            {range: 4.2, fireRate: 1.25, damage: 64, projectileSpeed: 560, upgradeCost: 62},
+            {range: 4.9, fireRate: 1.05, damage: 92, projectileSpeed: 650, upgradeCost: null}
+        ]
+    },
+    machine: {
+        name: 'Machine gun', color: '#1E824C', projectileColor: '#c5ffd9', canTargetFlying: true,
+        levels: [
+            {range: 2.1, fireRate: 0.19, damage: 7, projectileSpeed: 300, cost: 28, upgradeCost: 34},
+            {range: 2.35, fireRate: 0.15, damage: 10, projectileSpeed: 325, upgradeCost: 48},
+            {range: 2.6, fireRate: 0.12, damage: 13, projectileSpeed: 360, upgradeCost: null}
+        ]
+    }
+};
 
 const waveConfigs = [
-    {type:'normal', count:6, delay:600},
-    {type:'normal', count:8, delay:560},
+    {type:'normal', count:6, delay:620},
+    {type:'normal', count:8, delay:580},
     {type:'fast', count:10, delay:520},
-    {type:'shielded', count:9, delay:620},
-    {type:'normal', count:12, delay:500},
-    {type:'fast', count:10, delay:480},
-    {type:'shielded', count:11, delay:540},
-    {type:'normal', count:14, delay:520},
-    {type:'fast', count:12, delay:460},
-    {type:'shielded', count:13, delay:520},
-    {type:'normal', count:15, delay:500},
-    {type:'fast', count:14, delay:460},
+    {type:'shielded', count:9, delay:650},
+    {type:'normal', count:12, delay:520},
+    {type:'fast', count:10, delay:500},
+    {type:'shielded', count:11, delay:560},
+    {type:'normal', count:14, delay:540},
+    {type:'fast', count:12, delay:490},
+    {type:'shielded', count:13, delay:530},
+    {type:'normal', count:15, delay:510},
+    {type:'fast', count:14, delay:470},
     {type:'shielded', count:15, delay:520},
     {type:'boss', count:2, delay:1100},
-    {type:'fast', count:16, delay:440},
+    {type:'fast', count:16, delay:450},
     {type:'shielded', count:16, delay:500},
     {type:'boss', count:3, delay:1200},
-    {type:'fast', count:18, delay:420},
-    {type:'shielded', count:18, delay:480},
+    {type:'fast', count:18, delay:430},
+    {type:'shielded', count:18, delay:490},
     {type:'boss', count:3, delay:1250},
     {type:'flying', count:8, delay:780},
-    {type:'boss', count:2, delay:1400},
-    {type:'boss', count:1, delay:1600},
+    {type:'boss', count:2, delay:1350},
+    {type:'boss', count:1, delay:1550},
     {type:'fast', count:22, delay:420},
-    {type:'shielded', count:20, delay:460},
-    {type:'boss', count:3, delay:1250},
-    {type:'flying', count:10, delay:760},
+    {type:'shielded', count:20, delay:470},
+    {type:'boss', count:3, delay:1220},
+    {type:'flying', count:10, delay:740},
     {type:'fast', count:24, delay:400},
     {type:'shielded', count:22, delay:450},
     {type:'boss', count:4, delay:1300}
 ];
 
+let towers = [];
+let slugs = [];
+let projectiles = [];
+let effects = [];
+
+let coins = 40;
+let leaks = 0;
+let kills = 0;
+let currentWave = 0;
+let gameRunning = false;
+let gameEnded = false;
+let selectedTowerType = 'standard';
+let gameSpeed = 1;
+
+let waveInProgress = false;
+let waveSpawnCount = 0;
+let lastSpawnTime = 0;
+let waveClearAt = 0;
+
 let saltReady = true;
-let saltCooldown = 20000;
+const saltCooldown = 20000;
 let lastSaltTime = 0;
+
 let fireReady = true;
-let fireCooldown = 30000;
+const fireCooldown = 30000;
 let lastFireTime = 0;
 
 let lastFrameTime = performance.now();
+let loopStarted = false;
+let animationTime = 0;
 
 const waveDisplay = document.getElementById('waveDisplay');
 const coinDisplay = document.getElementById('coinDisplay');
+const healthDisplay = document.getElementById('healthDisplay');
 const leakDisplay = document.getElementById('leakDisplay');
+const killDisplay = document.getElementById('killDisplay');
+const nextWaveDisplay = document.getElementById('nextWaveDisplay');
+const waveTypeDisplay = document.getElementById('waveTypeDisplay');
+const maxWaveDisplay = document.getElementById('maxWaveDisplay');
+
 const saltButton = document.getElementById('saltButton');
 const fireButton = document.getElementById('fireButton');
+const speedButton = document.getElementById('speedButton');
+
 const startOverlay = document.getElementById('startOverlay');
 const gameOverOverlay = document.getElementById('gameOverOverlay');
 const winOverlay = document.getElementById('winOverlay');
 const startButton = document.getElementById('startButton');
 const retryButton = document.getElementById('retryButton');
 const winRetryButton = document.getElementById('winRetryButton');
-const towerTypeStandard = document.getElementById('towerTypeStandard');
-const towerTypeSplash = document.getElementById('towerTypeSplash');
-const towerTypeFrost = document.getElementById('towerTypeFrost');
-const towerTypeAir = document.getElementById('towerTypeAir');
-const towerTypeFire = document.getElementById('towerTypeFire');
-const towerTypeSniper = document.getElementById('towerTypeSniper');
-const towerTypeMachine = document.getElementById('towerTypeMachine');
-const waveTypeDisplay = document.getElementById('waveTypeDisplay');
-const maxWaveDisplay = document.getElementById('maxWaveDisplay');
+
+const towerButtons = {
+    standard: document.getElementById('towerTypeStandard'),
+    splash: document.getElementById('towerTypeSplash'),
+    frost: document.getElementById('towerTypeFrost'),
+    air: document.getElementById('towerTypeAir'),
+    fire: document.getElementById('towerTypeFire'),
+    sniper: document.getElementById('towerTypeSniper'),
+    machine: document.getElementById('towerTypeMachine')
+};
+
+let hudCache = {
+    wave: null,
+    coins: null,
+    leaks: null,
+    health: null,
+    waveType: null,
+    kills: null
+};
 
 function tileFromPixel(px, py) {
     const rect = canvas.getBoundingClientRect();
@@ -399,343 +503,871 @@ function findTowerAt(col, row) {
     return towers.find(t => t.col === col && t.row === row);
 }
 
-function getTowerCost(type) {
-    if (type === 'standard') return 15;
-    if (type === 'splash') return 22;
-    if (type === 'frost') return 22;
-    if (type === 'fire') return 24;
-    if (type === 'air') return 26;
-    if (type === 'sniper') return 32;
-    if (type === 'machine') return 28;
-    return 20;
-}
-
-function createTower(col, row) {
-    const type = selectedTowerType;
-    const base = {col, row, level: 1, type, lastShot: 0};
-    if (type === 'splash') {
-        return {...base, range: 2.0, fireRate: 1.0, damage: 10, splashRadius: 1.5};
-    }
-    if (type === 'frost') {
-        return {...base, range: 2.4, fireRate: 1.2, damage: 8, slowAmount: 0.5};
-    }
-    if (type === 'fire') {
-        return {...base, range: 2.1, fireRate: 0.85, damage: 12, burnDamage: 4, burnDuration: 1000, burnRate: 4};
-    }
-    if (type === 'air') {
-        return {...base, range: 2.6, fireRate: 1.0, damage: 14, antiAir: true};
-    }
-    if (type === 'sniper') {
-        return {...base, range: 3.4, fireRate: 1.4, damage: 42, precision: true, canTargetFlying: true};
-    }
-    if (type === 'machine') {
-        return {...base, range: 2.0, fireRate: 0.25, damage: 7, burst: true};
-    }
-    return {...base, range: 2.4, fireRate: 0.7, damage: 14};
-}
-
-function upgradeTower(tower) {
-    if (tower.type === 'splash') {
-        if (tower.level === 1) {
-            tower.level = 2; tower.range = 2.4; tower.damage = 14; tower.fireRate = 0.9; tower.splashRadius = 1.8;
-        } else if (tower.level === 2) {
-            tower.level = 3; tower.range = 2.8; tower.damage = 18; tower.fireRate = 0.8; tower.splashRadius = 2.1;
-        }
-    } else if (tower.type === 'standard') {
-        if (tower.level === 1) {
-            tower.level = 2; tower.range = 2.8; tower.damage = 22; tower.fireRate = 0.55;
-        } else if (tower.level === 2) {
-            tower.level = 3; tower.range = 3.3; tower.damage = 32; tower.fireRate = 0.45;
-        }
-    }
-}
-
-function createSlugForWave(wave) {
-    const config = waveConfigs[wave - 1] || {type:'normal', count:10, delay:600};
-    let baseHp = 35 + wave * 14;
-    let armor = Math.max(0, wave - 4);
-    let speed = 32 + wave * 3;
-    let color = '#537C2A';
-
-    if (config.type === 'fast') {
-        baseHp = Math.max(35, 28 + wave * 10);
-        speed = 68 + wave * 4;
-        color = '#A26534';
-    } else if (config.type === 'shielded') {
-        baseHp = 50 + wave * 16;
-        armor += 2;
-        speed = 30 + wave * 2;
-        color = '#4F6E8D';
-    } else if (config.type === 'boss') {
-        baseHp = 240 + wave * 44;
-        armor += 5;
-        speed = 24;
-        color = '#8A2F4B';
-    } else if (config.type === 'flying') {
-        baseHp = 30 + wave * 12;
-        armor = Math.max(0, wave - 2);
-        speed = 78 + wave * 3;
-        color = '#D38C0E';
-    }
-
+function getTowerCenter(tower) {
     return {
-        x: pathTiles[0].x * TILE_SIZE + TILE_SIZE/2,
-        y: pathTiles[0].y * TILE_SIZE + TILE_SIZE/2,
-        pathIndex: 0,
-        hp: baseHp,
-        maxHp: baseHp,
-        armor: armor,
-        speed: speed,
-        type: config.type,
-        color: color,
-        alive: true,
-        slowed: 1,
-        flying: config.type === 'flying'
+        x: (tower.col + 0.5) * TILE_SIZE,
+        y: (tower.row + 0.5) * TILE_SIZE
     };
 }
 
+function drawPolygon(cx, cy, radius, sides, rotation = 0) {
+    ctx.beginPath();
+    for (let i = 0; i < sides; i++) {
+        const angle = rotation + (Math.PI * 2 * i) / sides;
+        const px = cx + Math.cos(angle) * radius;
+        const py = cy + Math.sin(angle) * radius;
+        if (i === 0) ctx.moveTo(px, py);
+        else ctx.lineTo(px, py);
+    }
+    ctx.closePath();
+}
+
+function getCurrentTowerStats(tower) {
+    return TOWER_DATA[tower.type].levels[tower.level - 1];
+}
+
+function getTowerCost(type) {
+    return TOWER_DATA[type].levels[0].cost;
+}
+
+function getUpgradeCost(tower) {
+    if (tower.level >= 3) return null;
+    return TOWER_DATA[tower.type].levels[tower.level - 1].upgradeCost;
+}
+
+function createTower(col, row) {
+    const cost = getTowerCost(selectedTowerType);
+    return {
+        col,
+        row,
+        type: selectedTowerType,
+        level: 1,
+        shotCooldown: 0,
+        totalInvested: cost
+    };
+}
+
+function upgradeTower(tower) {
+    if (tower.level >= 3) return false;
+    const cost = getUpgradeCost(tower);
+    if (cost === null || coins < cost) return false;
+    coins -= cost;
+    tower.level += 1;
+    tower.totalInvested = (tower.totalInvested || getTowerCost(tower.type)) + cost;
+    playBeep(520, 0.12, 'triangle', 0.25);
+    return true;
+}
+
+function sellTower(col, row) {
+    const idx = towers.findIndex(t => t.col === col && t.row === row);
+    if (idx === -1) return;
+    const tower = towers[idx];
+    const refund = Math.floor((tower.totalInvested || getTowerCost(tower.type)) * 0.6);
+    coins += refund;
+    towers.splice(idx, 1);
+    addEffect((col + 0.5) * TILE_SIZE, (row + 0.5) * TILE_SIZE, 14, 'rgba(255, 215, 0, 0.65)', 0.28);
+    playBeep(260, 0.12, 'triangle', 0.2);
+    updateDisplays(performance.now());
+}
+
+function createSlugForWave(wave) {
+    const config = waveConfigs[wave - 1] || {type:'normal'};
+    // Baseline armor scales with wave; specialty slug types add fixed bonuses below.
+    let hp = 36 + wave * 14;
+    let armor = Math.max(0, wave - WAVE_ARMOR_START_THRESHOLD) * WAVE_ARMOR_MULTIPLIER;
+    let speed = 34 + wave * 2.9;
+    let color = '#537C2A';
+    let reward = 5;
+
+    if (config.type === 'fast') {
+        hp = Math.max(45, 28 + wave * 10);
+        armor = Math.max(0, wave - 8) * 0.4;
+        speed = 76 + wave * 3.4;
+        color = '#A26534';
+        reward = 4;
+    } else if (config.type === 'shielded') {
+        hp = 56 + wave * 16;
+        armor += 2.5;
+        speed = 33 + wave * 2.1;
+        color = '#4F6E8D';
+        reward = 6;
+    } else if (config.type === 'boss') {
+        hp = 260 + wave * 48;
+        armor += 6;
+        speed = 26 + wave * 1.1;
+        color = '#8A2F4B';
+        reward = 20;
+    } else if (config.type === 'flying') {
+        hp = 34 + wave * 12;
+        armor = Math.max(0, wave - 2) * 0.6;
+        speed = 88 + wave * 3.1;
+        color = '#D38C0E';
+        reward = 7;
+    }
+
+    const start = pathPoints[0];
+    return {
+        x: start.x,
+        y: start.y,
+        pathIndex: 0,
+        dirX: 1,
+        dirY: 0,
+        hp,
+        maxHp: hp,
+        armor,
+        baseSpeed: speed,
+        alive: true,
+        escaped: false,
+        flying: config.type === 'flying',
+        type: config.type,
+        color,
+        reward,
+        slowUntil: 0,
+        slowMultiplier: 1,
+        burnTicksRemaining: 0,
+        burnTickEvery: 0,
+        burnDamage: 0,
+        burnTickTimer: 0
+    };
+}
+
+function addEffect(x, y, radius, color, lifetime = 0.22) {
+    effects.push({x, y, radius, color, life: lifetime, maxLife: lifetime});
+}
+
+function damageSlug(slug, rawDamage) {
+    if (!slug.alive) return false;
+    const dealt = Math.max(MIN_DAMAGE, rawDamage - slug.armor);
+    slug.hp -= dealt;
+    if (slug.hp <= 0) {
+        slug.alive = false;
+        kills += 1;
+        coins += slug.reward;
+        playCoin();
+        addEffect(slug.x, slug.y, 12, 'rgba(255, 235, 59, 0.7)', 0.18);
+        return true;
+    }
+    return false;
+}
+
+function applyFrost(slug, multiplier, duration) {
+    slug.slowMultiplier = Math.min(slug.slowMultiplier, multiplier);
+    slug.slowUntil = Math.max(slug.slowUntil, performance.now() + duration * 1000);
+}
+
+function applyBurn(slug, damage, duration, tickEvery) {
+    const nextDamage = Math.max(slug.burnDamage, damage);
+    const refreshedTicks = Math.max(1, Math.ceil(duration / tickEvery));
+    slug.burnTickEvery = tickEvery;
+
+    if (nextDamage > slug.burnDamage || slug.burnTicksRemaining <= 0) {
+        slug.burnDamage = nextDamage;
+        slug.burnTicksRemaining = refreshedTicks;
+        slug.burnTickTimer = tickEvery;
+        return;
+    }
+
+    slug.burnTicksRemaining = Math.max(slug.burnTicksRemaining, refreshedTicks);
+}
+
+function canTowerTargetSlug(tower, slug) {
+    const data = TOWER_DATA[tower.type];
+    if (data.antiAir) return slug.flying;
+    if (data.canTargetFlying === false && slug.flying) return false;
+    return true;
+}
+
+function getTowerTarget(tower) {
+    const stats = getCurrentTowerStats(tower);
+    const center = getTowerCenter(tower);
+    const rangePx = stats.range * TILE_SIZE;
+    let best = null;
+    let bestProgress = -Infinity;
+
+    for (const slug of slugs) {
+        if (!slug.alive || !canTowerTargetSlug(tower, slug)) continue;
+        const dx = slug.x - center.x;
+        const dy = slug.y - center.y;
+        if (dx * dx + dy * dy > rangePx * rangePx) continue;
+        let progress = slug.pathIndex;
+        if (slug.pathIndex < pathPoints.length - 1) {
+            const current = pathPoints[slug.pathIndex];
+            const next = pathPoints[slug.pathIndex + 1];
+            const segLen = Math.hypot(next.x - current.x, next.y - current.y);
+            const toNext = Math.hypot(next.x - slug.x, next.y - slug.y);
+            const frac = segLen > 0 ? Math.max(0, Math.min(1, (segLen - toNext) / segLen)) : 0;
+            progress += frac;
+        }
+        if (progress > bestProgress) {
+            bestProgress = progress;
+            best = slug;
+        }
+    }
+    return best;
+}
+
+function spawnProjectile(tower, target) {
+    const center = getTowerCenter(tower);
+    const stats = getCurrentTowerStats(tower);
+    const data = TOWER_DATA[tower.type];
+
+    projectiles.push({
+        x: center.x,
+        y: center.y,
+        speed: stats.projectileSpeed,
+        target,
+        damage: stats.damage,
+        splashRadius: stats.splashRadius || 0,
+        slowMultiplier: stats.slowMultiplier,
+        slowDuration: stats.slowDuration,
+        burnDamage: stats.burnDamage,
+        burnDuration: stats.burnDuration,
+        burnTick: stats.burnTick,
+        color: data.projectileColor,
+        type: tower.type
+    });
+    playHit();
+}
+
 function triggerSaltStorm() {
-    if (!saltReady || !gameRunning) return;
+    if (!saltReady || !gameRunning || gameEnded) return;
     saltReady = false;
     lastSaltTime = performance.now();
     saltButton.classList.add('cooldown');
-
-    slugs.forEach(s => {
-        if (s.alive) {
-            s.hp -= 35;
-            playHit();
-            if (s.hp <= 0) {
-                s.alive = false;
-                coins += 4;
-                coinDisplay.textContent = coins;
-                playCoin();
-            }
+    for (const slug of slugs) {
+        if (slug.alive) {
+            damageSlug(slug, 35);
+            addEffect(slug.x, slug.y, 9, 'rgba(224,224,255,0.6)', 0.15);
         }
-    });
+    }
+}
+
+function triggerFireStorm() {
+    if (!fireReady || !gameRunning || gameEnded) return;
+    fireReady = false;
+    lastFireTime = performance.now();
+    fireButton.classList.add('cooldown');
+    for (const slug of slugs) {
+        if (slug.alive) {
+            damageSlug(slug, 55);
+            applyBurn(slug, 8, 2.0, 0.4);
+            addEffect(slug.x, slug.y, 12, 'rgba(255,87,34,0.7)', 0.2);
+        }
+    }
+}
+
+function selectTowerType(type) {
+    selectedTowerType = type;
+    for (const [key, button] of Object.entries(towerButtons)) {
+        button.classList.toggle('selected', key === type);
+    }
+}
+
+function updateAbilityButtons(now) {
+    if (!saltReady) {
+        const left = Math.max(0, saltCooldown - (now - lastSaltTime));
+        if (left <= 0) {
+            saltReady = true;
+            saltButton.classList.remove('cooldown');
+            saltButton.textContent = 'Salt storm (S)';
+        } else {
+            saltButton.textContent = `Salt storm (${Math.ceil(left / 1000)}s)`;
+        }
+    }
+
+    if (!fireReady) {
+        const left = Math.max(0, fireCooldown - (now - lastFireTime));
+        if (left <= 0) {
+            fireReady = true;
+            fireButton.classList.remove('cooldown');
+            fireButton.textContent = 'Fire storm (F)';
+        } else {
+            fireButton.textContent = `Fire storm (${Math.ceil(left / 1000)}s)`;
+        }
+    }
+}
+
+function updateDisplays(now) {
+    const health = Math.max(0, MAX_LEAKS - leaks);
+    const config = waveConfigs[Math.max(0, currentWave - 1)] || {type:'normal'};
+    const waveType = config.type.charAt(0).toUpperCase() + config.type.slice(1);
+
+    if (
+        hudCache.wave === currentWave &&
+        hudCache.coins === coins &&
+        hudCache.leaks === leaks &&
+        hudCache.health === health &&
+        hudCache.waveType === waveType &&
+        hudCache.kills === kills
+    ) {
+        // Still update countdown even when nothing else changed
+        if (!waveInProgress && currentWave < MAX_WAVES && now !== undefined) {
+            const secsLeft = Math.ceil((waveClearAt - now) / 1000);
+            nextWaveDisplay.textContent = secsLeft > 0 ? `Next wave in ${secsLeft}s` : '';
+        }
+        return;
+    }
+
+    hudCache.wave = currentWave;
+    hudCache.coins = coins;
+    hudCache.leaks = leaks;
+    hudCache.health = health;
+    hudCache.waveType = waveType;
+    hudCache.kills = kills;
+
+    waveDisplay.textContent = currentWave;
+    maxWaveDisplay.textContent = MAX_WAVES;
+    coinDisplay.textContent = coins;
+    leakDisplay.textContent = leaks;
+    healthDisplay.textContent = health;
+    killDisplay.textContent = kills;
+    waveTypeDisplay.textContent = waveType;
+
+    if (!waveInProgress && currentWave < MAX_WAVES && now !== undefined) {
+        const secsLeft = Math.ceil((waveClearAt - now) / 1000);
+        nextWaveDisplay.textContent = secsLeft > 0 ? `Next wave in ${secsLeft}s` : '';
+    } else {
+        nextWaveDisplay.textContent = '';
+    }
+}
+
+function startNextWave(now) {
+    if (currentWave >= MAX_WAVES) return;
+    currentWave += 1;
+    waveInProgress = true;
+    waveSpawnCount = 0;
+    lastSpawnTime = now;
+    updateDisplays(now);
+}
+
+function cleanDead() {
+    slugs = slugs.filter(s => s.alive);
+}
+
+function endGame(isWin) {
+    if (gameEnded) return;
+    gameEnded = true;
+    gameRunning = false;
+    if (isWin) {
+        playWin();
+        document.getElementById('winKills').textContent = `Slugs defeated: ${kills}`;
+        winOverlay.style.display = 'flex';
+        gameOverOverlay.style.display = 'none';
+    } else {
+        playLose();
+        document.getElementById('gameOverKills').textContent = `Slugs defeated: ${kills} — reached wave ${currentWave}`;
+        gameOverOverlay.style.display = 'flex';
+        winOverlay.style.display = 'none';
+    }
+}
+
+function resetGameState() {
+    towers = [];
+    slugs = [];
+    projectiles = [];
+    effects = [];
+    coins = 40;
+    leaks = 0;
+    kills = 0;
+    currentWave = 0;
+    waveInProgress = false;
+    waveSpawnCount = 0;
+    waveClearAt = 0;
+    gameRunning = true;
+    gameEnded = false;
+    gameSpeed = 1;
+    saltReady = true;
+    fireReady = true;
+    saltButton.classList.remove('cooldown');
+    fireButton.classList.remove('cooldown');
+    saltButton.textContent = 'Salt storm (S)';
+    fireButton.textContent = 'Fire storm (F)';
+    speedButton.textContent = '2× Speed';
+    speedButton.classList.remove('selected');
+    hudCache = {wave: null, coins: null, leaks: null, health: null, waveType: null, kills: null};
+    nextWaveDisplay.textContent = '';
+    lastFrameTime = performance.now();
+    animationTime = 0;
+    selectTowerType('standard');
+    updateDisplays(performance.now());
+}
+
+function startGame() {
+    ensureAudio();
+    startOverlay.style.display = 'none';
+    gameOverOverlay.style.display = 'none';
+    winOverlay.style.display = 'none';
+    resetGameState();
+    startNextWave(performance.now());
+    if (!loopStarted) {
+        loopStarted = true;
+        requestAnimationFrame(gameLoop);
+    }
 }
 
 function handlePointerDown(ev) {
     ev.preventDefault();
+    if (!gameRunning || gameEnded) return;
     const isTouch = ev.type === 'touchstart';
     const point = isTouch ? ev.touches[0] : ev;
     const tile = tileFromPixel(point.clientX, point.clientY);
 
-    if (!gameRunning) return;
     if (tile.col < 0 || tile.col >= GRID_COLS || tile.row < 0 || tile.row >= GRID_ROWS) return;
 
     const existing = findTowerAt(tile.col, tile.row);
-
     if (existing) {
-        if (existing.level < 3 && coins >= 25) {
-            coins -= 25;
-            coinDisplay.textContent = coins;
-            upgradeTower(existing);
-            playBeep(520, 0.12, 'triangle', 0.25);
+        upgradeTower(existing);
+        updateDisplays(performance.now());
+        return;
+    }
+
+    if (isPathTile(tile.col, tile.row)) return;
+    const cost = getTowerCost(selectedTowerType);
+    if (coins < cost) return;
+
+    coins -= cost;
+    towers.push(createTower(tile.col, tile.row));
+    addEffect((tile.col + 0.5) * TILE_SIZE, (tile.row + 0.5) * TILE_SIZE, 11, 'rgba(102, 187, 106, 0.65)', 0.25);
+    playBeep(360, 0.1, 'square', 0.25);
+    updateDisplays(performance.now());
+}
+
+function updateSlugs(dt, now) {
+    for (const slug of slugs) {
+        if (!slug.alive) continue;
+
+        if (slug.slowUntil <= now) {
+            slug.slowMultiplier = 1;
         }
-    } else {
-        const cost = getTowerCost(selectedTowerType);
-        if (!isPathTile(tile.col, tile.row) && coins >= cost) {
-            coins -= cost;
-            coinDisplay.textContent = coins;
-            towers.push(createTower(tile.col, tile.row));
-            playBeep(360, 0.1, 'square', 0.25);
+
+        if (slug.burnTicksRemaining > 0) {
+            slug.burnTickTimer -= dt;
+            if (slug.burnTickTimer <= 0 && slug.alive) {
+                damageSlug(slug, slug.burnDamage);
+                slug.burnTickTimer = slug.burnTickEvery;
+                slug.burnTicksRemaining -= 1;
+                addEffect(slug.x, slug.y, 6, 'rgba(255,87,34,0.5)', 0.12);
+            }
+        }
+
+        if (!slug.alive) continue;
+
+        let remainingMove = slug.baseSpeed * slug.slowMultiplier * dt;
+
+        while (remainingMove > 0 && slug.alive) {
+            const nextIndex = slug.pathIndex + 1;
+            if (nextIndex >= pathPoints.length) {
+                slug.alive = false;
+                slug.escaped = true;
+                leaks += 1;
+                addEffect(slug.x, slug.y, 16, 'rgba(244,67,54,0.6)', 0.25);
+                if (leaks >= MAX_LEAKS) {
+                    endGame(false);
+                }
+                break;
+            }
+
+            const target = pathPoints[nextIndex];
+            const dx = target.x - slug.x;
+            const dy = target.y - slug.y;
+            const dist = Math.hypot(dx, dy);
+
+            if (dist <= remainingMove) {
+                if (dist > 0) {
+                    slug.dirX = dx / dist;
+                    slug.dirY = dy / dist;
+                }
+                slug.x = target.x;
+                slug.y = target.y;
+                slug.pathIndex = nextIndex;
+                remainingMove -= dist;
+            } else {
+                const ratio = remainingMove / dist;
+                slug.dirX = dx / dist;
+                slug.dirY = dy / dist;
+                slug.x += dx * ratio;
+                slug.y += dy * ratio;
+                remainingMove = 0;
+            }
         }
     }
 }
 
-canvas.addEventListener('mousedown', handlePointerDown);
-canvas.addEventListener('touchstart', handlePointerDown, {passive:false});
-saltButton.addEventListener('click', triggerSaltStorm);
-fireButton.addEventListener('click', triggerFireStorm);
-towerTypeStandard.addEventListener('click', () => selectTowerType('standard'));
-towerTypeSplash.addEventListener('click', () => selectTowerType('splash'));
-towerTypeFrost.addEventListener('click', () => selectTowerType('frost'));
-towerTypeAir.addEventListener('click', () => selectTowerType('air'));
-towerTypeFire.addEventListener('click', () => selectTowerType('fire'));
-towerTypeSniper.addEventListener('click', () => selectTowerType('sniper'));
-towerTypeMachine.addEventListener('click', () => selectTowerType('machine'));
+function updateTowers(dt) {
+    for (const tower of towers) {
+        const stats = getCurrentTowerStats(tower);
+        tower.shotCooldown -= dt;
+        if (tower.shotCooldown > 0) continue;
 
-document.addEventListener('keydown', (ev) => {
-    if (ev.key === 's' || ev.key === 'S') triggerSaltStorm();
-    if (ev.key === 'f' || ev.key === 'F') triggerFireStorm();
-});
+        const target = getTowerTarget(tower);
+        if (!target) continue;
 
-function selectTowerType(type) {
-    selectedTowerType = type;
-    towerTypeStandard.classList.toggle('selected', type === 'standard');
-    towerTypeSplash.classList.toggle('selected', type === 'splash');
+        spawnProjectile(tower, target);
+        tower.shotCooldown = stats.fireRate;
+    }
 }
 
-function updateDisplays() {
-    waveDisplay.textContent = currentWave;
-    coinDisplay.textContent = coins;
-    leakDisplay.textContent = leaks;
-    const config = waveConfigs[currentWave - 1] || {type:'normal'};
-    waveTypeDisplay.textContent = config.type.charAt(0).toUpperCase() + config.type.slice(1);
+function updateProjectiles(dt) {
+    const remaining = [];
+    for (const proj of projectiles) {
+        if (!proj.target || !proj.target.alive) continue;
+
+        const dx = proj.target.x - proj.x;
+        const dy = proj.target.y - proj.y;
+        const dist = Math.hypot(dx, dy);
+        const move = proj.speed * dt;
+
+        if (dist <= move || dist < 6) {
+            proj.x = proj.target.x;
+            proj.y = proj.target.y;
+
+            if (proj.splashRadius > 0) {
+                const radiusPx = proj.splashRadius * TILE_SIZE;
+                for (const slug of slugs) {
+                    if (!slug.alive) continue;
+                    const sx = slug.x - proj.x;
+                    const sy = slug.y - proj.y;
+                    if (sx * sx + sy * sy <= radiusPx * radiusPx) {
+                        damageSlug(slug, proj.damage);
+                        if (proj.slowMultiplier) applyFrost(slug, proj.slowMultiplier, proj.slowDuration);
+                        if (proj.burnDamage) applyBurn(slug, proj.burnDamage, proj.burnDuration, proj.burnTick);
+                    }
+                }
+                addEffect(proj.x, proj.y, radiusPx * 0.28, 'rgba(157, 215, 255, 0.55)', 0.2);
+            } else {
+                damageSlug(proj.target, proj.damage);
+                if (proj.slowMultiplier) applyFrost(proj.target, proj.slowMultiplier, proj.slowDuration);
+                if (proj.burnDamage) applyBurn(proj.target, proj.burnDamage, proj.burnDuration, proj.burnTick);
+                addEffect(proj.x, proj.y, 8, 'rgba(255,255,255,0.45)', 0.15);
+            }
+            continue;
+        }
+
+        proj.x += (dx / dist) * move;
+        proj.y += (dy / dist) * move;
+        remaining.push(proj);
+    }
+    projectiles = remaining;
 }
 
-function triggerFireStorm() {
-    if (!fireReady || !gameRunning) return;
-    fireReady = false;
-    lastFireTime = performance.now();
-    fireButton.classList.add('cooldown');
+function updateEffects(dt) {
+    const still = [];
+    for (const effect of effects) {
+        effect.life -= dt;
+        if (effect.life > 0) still.push(effect);
+    }
+    effects = still;
+}
 
-    slugs.forEach(s => {
-        if (s.alive) {
-            s.hp -= 55;
-            playHit();
-            if (s.hp <= 0) {
-                s.alive = false;
-                coins += 4;
-                coinDisplay.textContent = coins;
-                playCoin();
+function updateWaves(now) {
+    if (gameEnded) return;
+
+    if (waveInProgress) {
+        const config = waveConfigs[currentWave - 1] || {count: 0, delay: 700};
+        if (waveSpawnCount < config.count && now - lastSpawnTime >= config.delay) {
+            slugs.push(createSlugForWave(currentWave));
+            waveSpawnCount += 1;
+            lastSpawnTime = now;
+        }
+
+        if (waveSpawnCount >= config.count) {
+            const alive = slugs.some(s => s.alive);
+            if (!alive) {
+                waveInProgress = false;
+                waveClearAt = now + WAVE_CLEAR_DELAY;
+                cleanDead();
             }
         }
-    });
-}
+    } else if (currentWave < MAX_WAVES && now >= waveClearAt) {
+        startNextWave(now);
+    }
 
-function startNextWave() {
-    currentWave++;
-    waveDisplay.textContent = currentWave;
-    waveInProgress = true;
-    nextSlugIndex = 0;
-    lastSpawnTime = performance.now();
-}
-
-function startGame() {
-    startOverlay.style.display = 'none';
-    coins = 40;
-    leaks = 0;
-    currentWave = 0;
-    slugs = [];
-    towers = [];
-    projectiles = [];
-    gameRunning = true;
-    waveInProgress = false;
-    nextSlugIndex = 0;
-    saltReady = true;
-    lastSpawnTime = 0;
-    lastFrameTime = performance.now();
-    updateDisplays();
-    startNextWave();
-    requestAnimationFrame(gameLoop);
-}
-
-function showGameOver() {
-    gameRunning = false;
-    gameOverOverlay.style.display = 'flex';
-    startOverlay.style.display = 'none';
-    winOverlay.style.display = 'none';
-    playLose();
-}
-
-function showWin() {
-    gameRunning = false;
-    winOverlay.style.display = 'flex';
-    gameOverOverlay.style.display = 'none';
-    startOverlay.style.display = 'none';
-    playWin();
+    if (!waveInProgress && currentWave >= MAX_WAVES && slugs.every(s => !s.alive)) {
+        endGame(true);
+    }
 }
 
 function update(dt) {
-    if (!gameRunning) return;
+    if (!gameRunning || gameEnded) return;
     const now = performance.now();
+    animationTime += dt;
 
-    if (waveInProgress) {
-        const config = waveConfigs[currentWave - 1] || {count:10, delay:600};
-        if (nextSlugIndex < config.count && now - lastSpawnTime >= config.delay) {
-            slugs.push(createSlugForWave(currentWave));
-            nextSlugIndex++;
-            lastSpawnTime = now;
+    updateAbilityButtons(now);
+    updateWaves(now);
+    updateSlugs(dt, now);
+    updateTowers(dt);
+    updateProjectiles(dt);
+    updateEffects(dt);
+    cleanDead();
+
+    updateDisplays(now);
+}
+
+function drawBoard() {
+    ctx.fillStyle = '#8B7355';
+    ctx.fillRect(0, 0, canvas.width, canvas.height);
+
+    for (let y = 0; y < GRID_ROWS; y++) {
+        for (let x = 0; x < GRID_COLS; x++) {
+            ctx.fillStyle = ((x + y) % 2 === 0) ? '#7a654f' : '#725c47';
+            ctx.fillRect(x * TILE_SIZE, y * TILE_SIZE, TILE_SIZE, TILE_SIZE);
         }
     }
 
-    slugs.forEach(slug => {
-        if (!slug.alive) return;
-        const targetIndex = Math.min(slug.pathIndex + 1, pathTiles.length - 1);
-        const targetTile = pathTiles[targetIndex];
-        const targetX = targetTile.x * TILE_SIZE + TILE_SIZE / 2;
-        const targetY = targetTile.y * TILE_SIZE + TILE_SIZE / 2;
-        const dx = targetX - slug.x;
-        const dy = targetY - slug.y;
-        const dist = Math.hypot(dx, dy);
-        
-        if (dist < 1) {
-            slug.pathIndex = targetIndex;
-            if (slug.pathIndex >= pathTiles.length - 1) {
-                slug.alive = false;
-                leaks += 1;
-                updateDisplays();
-                if (leaks >= 10) showGameOver();
-                return;
-            }
+    for (const tile of pathTiles) {
+        ctx.fillStyle = '#5f4b3b';
+        ctx.fillRect(tile.x * TILE_SIZE, tile.y * TILE_SIZE, TILE_SIZE, TILE_SIZE);
+    }
+
+    ctx.strokeStyle = 'rgba(255,255,255,0.08)';
+    for (let i = 0; i <= GRID_COLS; i++) {
+        ctx.beginPath();
+        ctx.moveTo(i * TILE_SIZE, 0);
+        ctx.lineTo(i * TILE_SIZE, canvas.height);
+        ctx.stroke();
+    }
+    for (let i = 0; i <= GRID_ROWS; i++) {
+        ctx.beginPath();
+        ctx.moveTo(0, i * TILE_SIZE);
+        ctx.lineTo(canvas.width, i * TILE_SIZE);
+        ctx.stroke();
+    }
+}
+
+function drawTowers() {
+    for (const tower of towers) {
+        const data = TOWER_DATA[tower.type];
+        const {x, y} = getTowerCenter(tower);
+        const stats = getCurrentTowerStats(tower);
+
+        ctx.fillStyle = data.color;
+        if (tower.type === 'splash') {
+            ctx.save();
+            ctx.translate(x, y);
+            ctx.rotate(Math.PI / 4);
+            ctx.fillRect(-14, -14, 28, 28);
+            ctx.restore();
+        } else if (tower.type === 'frost') {
+            drawPolygon(x, y, 18, 4, Math.PI / 4);
+            ctx.fill();
+        } else if (tower.type === 'fire') {
+            drawPolygon(x, y, 18, 6, Math.PI / 6);
+            ctx.fill();
+        } else if (tower.type === 'air') {
+            drawPolygon(x, y, 18, 3, -Math.PI / 2);
+            ctx.fill();
+        } else if (tower.type === 'sniper') {
+            drawPolygon(x, y, 17, 8, Math.PI / 8);
+            ctx.fill();
+        } else if (tower.type === 'machine') {
+            drawPolygon(x, y, 16, 10, Math.PI / 10);
+            ctx.fill();
         } else {
-            const move = (slug.speed * dt) / 1000;
-            slug.x += (dx / dist) * move;
-            slug.y += (dy / dist) * move;
+            ctx.beginPath();
+            ctx.arc(x, y, 17, 0, Math.PI * 2);
+            ctx.fill();
         }
-    });
 
-    if (leaks >= 10) {
-        showGameOver();
+        ctx.strokeStyle = '#fff';
+        ctx.lineWidth = 2;
+        if (tower.type === 'splash') {
+            ctx.save();
+            ctx.translate(x, y);
+            ctx.rotate(Math.PI / 4);
+            ctx.strokeRect(-14, -14, 28, 28);
+            ctx.restore();
+        } else if (tower.type === 'frost') {
+            drawPolygon(x, y, 18, 4, Math.PI / 4);
+            ctx.stroke();
+        } else if (tower.type === 'fire') {
+            drawPolygon(x, y, 18, 6, Math.PI / 6);
+            ctx.stroke();
+        } else if (tower.type === 'air') {
+            drawPolygon(x, y, 18, 3, -Math.PI / 2);
+            ctx.stroke();
+        } else if (tower.type === 'sniper') {
+            drawPolygon(x, y, 17, 8, Math.PI / 8);
+            ctx.stroke();
+        } else if (tower.type === 'machine') {
+            drawPolygon(x, y, 16, 10, Math.PI / 10);
+            ctx.stroke();
+        } else {
+            ctx.beginPath();
+            ctx.arc(x, y, 17, 0, Math.PI * 2);
+            ctx.stroke();
+        }
+
+        if (tower.type === 'sniper') {
+            ctx.strokeStyle = 'rgba(255,255,255,0.75)';
+            ctx.lineWidth = 1.5;
+            ctx.beginPath();
+            ctx.moveTo(x - 8, y);
+            ctx.lineTo(x + 8, y);
+            ctx.moveTo(x, y - 8);
+            ctx.lineTo(x, y + 8);
+            ctx.stroke();
+        } else if (tower.type === 'machine') {
+            ctx.fillStyle = 'rgba(255,255,255,0.65)';
+            ctx.beginPath();
+            ctx.arc(x, y, 5, 0, Math.PI * 2);
+            ctx.fill();
+        } else if (tower.type === 'air') {
+            ctx.fillStyle = 'rgba(255,255,255,0.65)';
+            ctx.beginPath();
+            ctx.arc(x, y + 4, 4, 0, Math.PI * 2);
+            ctx.fill();
+        }
+
+        ctx.fillStyle = '#fff';
+        ctx.font = '12px system-ui';
+        ctx.textAlign = 'center';
+        ctx.fillText(String(tower.level), x, y + 4);
+
+        if (tower.shotCooldown <= 0.03) {
+            ctx.strokeStyle = 'rgba(255,255,255,0.14)';
+            ctx.lineWidth = 1;
+            ctx.beginPath();
+            ctx.arc(x, y, stats.range * TILE_SIZE, 0, Math.PI * 2);
+            ctx.stroke();
+        }
     }
+}
 
-    if (slugs.filter(s => s.alive).length === 0 && currentWave >= maxWaves && !waveInProgress) {
-        showWin();
+function drawSlugs() {
+    for (const slug of slugs) {
+        if (!slug.alive) continue;
+        const heading = Math.atan2(slug.dirY, slug.dirX);
+        const wiggle = Math.sin(animationTime * 10 + slug.pathIndex) * 2;
+        const yOffset = slug.flying ? Math.sin(animationTime * 8 + slug.pathIndex * 0.7) * 4 : 0;
+
+        ctx.save();
+        ctx.translate(slug.x, slug.y + yOffset);
+        ctx.rotate(heading);
+
+        ctx.fillStyle = slug.flying ? '#f7d46d' : slug.color;
+        ctx.beginPath();
+        ctx.ellipse(0, 0, slug.flying ? 12 : 11, slug.flying ? 8 : 10, 0, 0, Math.PI * 2);
+        ctx.fill();
+
+        ctx.fillStyle = 'rgba(255,255,255,0.3)';
+        ctx.beginPath();
+        ctx.ellipse(-4, -3, 4, 2, 0, 0, Math.PI * 2);
+        ctx.fill();
+
+        if (slug.flying) {
+            ctx.strokeStyle = 'rgba(255,255,255,0.75)';
+            ctx.lineWidth = 1.5;
+            ctx.beginPath();
+            ctx.moveTo(-4, -3);
+            ctx.lineTo(-12, -6 - wiggle * 0.25);
+            ctx.moveTo(-4, 3);
+            ctx.lineTo(-12, 6 + wiggle * 0.25);
+            ctx.stroke();
+        } else {
+            ctx.fillStyle = 'rgba(20, 20, 20, 0.75)';
+            ctx.beginPath();
+            ctx.arc(4, -2, 1.8, 0, Math.PI * 2);
+            ctx.fill();
+        }
+
+        ctx.restore();
+
+        if (slug.slowMultiplier < 1) {
+            ctx.strokeStyle = 'rgba(100, 190, 255, 0.95)';
+            ctx.lineWidth = 2;
+            ctx.beginPath();
+            ctx.arc(slug.x, slug.y + yOffset, 14, 0, Math.PI * 2);
+            ctx.stroke();
+        }
+
+        const hpWidth = 20;
+        ctx.fillStyle = '#2d2d2d';
+        ctx.fillRect(slug.x - hpWidth / 2, slug.y + yOffset - 16, hpWidth, 4);
+        ctx.fillStyle = '#7CFC00';
+        ctx.fillRect(slug.x - hpWidth / 2, slug.y + yOffset - 16, Math.max(0, slug.hp / slug.maxHp) * hpWidth, 4);
     }
+}
 
-    if (!saltReady && now - lastSaltTime >= saltCooldown) {
-        saltReady = true;
-        saltButton.classList.remove('cooldown');
+function drawProjectiles() {
+    for (const proj of projectiles) {
+        ctx.fillStyle = proj.color;
+        ctx.beginPath();
+        ctx.arc(proj.x, proj.y, proj.type === 'sniper' ? 4 : 3, 0, Math.PI * 2);
+        ctx.fill();
     }
+}
 
-    if (!fireReady && now - lastFireTime >= fireCooldown) {
-        fireReady = true;
-        fireButton.classList.remove('cooldown');
+function drawEffects() {
+    for (const effect of effects) {
+        const alpha = effect.life / effect.maxLife;
+        ctx.save();
+        ctx.globalAlpha = alpha;
+        ctx.fillStyle = effect.color;
+        ctx.beginPath();
+        ctx.arc(effect.x, effect.y, effect.radius * (1 - alpha * 0.4), 0, Math.PI * 2);
+        ctx.fill();
+        ctx.restore();
     }
 }
 
 function draw() {
-    ctx.fillStyle = '#8B7355';
-    ctx.fillRect(0, 0, canvas.width, canvas.height);
-
-    pathTiles.forEach(tile => {
-        ctx.fillStyle = '#6B5344';
-        ctx.fillRect(tile.x * TILE_SIZE, tile.y * TILE_SIZE, TILE_SIZE, TILE_SIZE);
-    });
-
-    towers.forEach(tower => {
-        ctx.fillStyle = '#8B4513';
-        ctx.fillRect((tower.col + 0.25) * TILE_SIZE, (tower.row + 0.25) * TILE_SIZE, TILE_SIZE * 0.5, TILE_SIZE * 0.5);
-    });
-
-    slugs.forEach(slug => {
-        if (slug.alive) {
-            ctx.fillStyle = slug.color;
-            ctx.fillRect(slug.x - 8, slug.y - 8, 16, 16);
-            ctx.fillStyle = '#90EE90';
-            ctx.fillRect(slug.x - 8, slug.y - 12, (slug.hp / slug.maxHp) * 16, 3);
-        }
-    });
+    drawBoard();
+    drawTowers();
+    drawSlugs();
+    drawProjectiles();
+    drawEffects();
 }
 
-function gameLoop() {
+function gameLoop(now) {
     if (gameRunning) {
-        const now = performance.now();
-        const dt = Math.min((now - lastFrameTime) / 1000, 0.05);
+        if (now - lastFrameTime > 250) {
+            lastFrameTime = now;
+        }
+        const rawDt = Math.min((now - lastFrameTime) / 1000, MAX_DELTA_TIME);
         lastFrameTime = now;
+        // gameSpeed scales simulation time; cap is applied per-step via MAX_DELTA_TIME
+        const dt = rawDt * gameSpeed;
         update(dt);
         draw();
-        updateDisplays();
     }
     requestAnimationFrame(gameLoop);
 }
 
-startButton.addEventListener('click', startGame);
-retryButton.addEventListener('click', () => location.reload());
-winRetryButton.addEventListener('click', () => location.reload());
+function toggleSpeed() {
+    gameSpeed = gameSpeed === 1 ? 2 : 1;
+    speedButton.textContent = gameSpeed === 2 ? '1× Speed' : '2× Speed';
+    speedButton.classList.toggle('selected', gameSpeed === 2);
+}
 
-updateDisplays();
+canvas.addEventListener('mousedown', handlePointerDown);
+canvas.addEventListener('touchstart', handlePointerDown, {passive:false});
+canvas.addEventListener('contextmenu', (ev) => {
+    ev.preventDefault();
+    if (!gameRunning || gameEnded) return;
+    const tile = tileFromPixel(ev.clientX, ev.clientY);
+    if (tile.col < 0 || tile.col >= GRID_COLS || tile.row < 0 || tile.row >= GRID_ROWS) return;
+    const existing = findTowerAt(tile.col, tile.row);
+    if (existing) sellTower(tile.col, tile.row);
+});
+saltButton.addEventListener('click', triggerSaltStorm);
+fireButton.addEventListener('click', triggerFireStorm);
+speedButton.addEventListener('click', toggleSpeed);
+
+for (const [type, button] of Object.entries(towerButtons)) {
+    button.addEventListener('click', () => selectTowerType(type));
+}
+
+document.addEventListener('keydown', (ev) => {
+    if (ev.key === 's' || ev.key === 'S') triggerSaltStorm();
+    if (ev.key === 'f' || ev.key === 'F') triggerFireStorm();
+    if (ev.key === 'x' || ev.key === 'X') toggleSpeed();
+});
+
+startButton.addEventListener('click', startGame);
+retryButton.addEventListener('click', startGame);
+winRetryButton.addEventListener('click', startGame);
+
+updateDisplays(performance.now());
 </script>
 </body>
 </html>
