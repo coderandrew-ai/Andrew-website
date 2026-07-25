@@ -511,7 +511,7 @@ function createTower(col, row) {
 function upgradeTower(tower) {
     if (tower.level >= 3) return false;
     const cost = getUpgradeCost(tower);
-    if (cost == null || coins < cost) return false;
+    if (cost === null || coins < cost) return false;
     coins -= cost;
     tower.level += 1;
     playBeep(520, 0.12, 'triangle', 0.25);
@@ -520,6 +520,7 @@ function upgradeTower(tower) {
 
 function createSlugForWave(wave) {
     const config = waveConfigs[wave - 1] || {type:'normal'};
+    // Baseline armor scales with wave; specialty slug types add fixed bonuses below.
     let hp = 36 + wave * 14;
     let armor = Math.max(0, wave - 5) * BASE_ARMOR_SCALE;
     let speed = 34 + wave * 2.9;
@@ -791,7 +792,7 @@ function startGame() {
     gameOverOverlay.style.display = 'none';
     winOverlay.style.display = 'none';
     resetGameState();
-    startNextWave(lastFrameTime);
+    startNextWave(performance.now());
     if (!loopStarted) {
         loopStarted = true;
         requestAnimationFrame(gameLoop);
@@ -985,10 +986,6 @@ function update(dt) {
     updateProjectiles(dt);
     updateEffects(dt);
     cleanDead();
-
-    if (leaks >= MAX_LEAKS) {
-        endGame(false);
-    }
 
     updateDisplays();
 }
