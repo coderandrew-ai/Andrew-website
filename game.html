@@ -445,6 +445,7 @@ let lastFireTime = 0;
 
 let lastFrameTime = performance.now();
 let loopStarted = false;
+let animationTime = 0;
 
 const waveDisplay = document.getElementById('waveDisplay');
 const coinDisplay = document.getElementById('coinDisplay');
@@ -507,6 +508,18 @@ function getTowerCenter(tower) {
         x: (tower.col + 0.5) * TILE_SIZE,
         y: (tower.row + 0.5) * TILE_SIZE
     };
+}
+
+function drawPolygon(cx, cy, radius, sides, rotation = 0) {
+    ctx.beginPath();
+    for (let i = 0; i < sides; i++) {
+        const angle = rotation + (Math.PI * 2 * i) / sides;
+        const px = cx + Math.cos(angle) * radius;
+        const py = cy + Math.sin(angle) * radius;
+        if (i === 0) ctx.moveTo(px, py);
+        else ctx.lineTo(px, py);
+    }
+    ctx.closePath();
 }
 
 function getCurrentTowerStats(tower) {
@@ -874,6 +887,7 @@ function resetGameState() {
     hudCache = {wave: null, coins: null, leaks: null, health: null, waveType: null, kills: null};
     nextWaveDisplay.textContent = '';
     lastFrameTime = performance.now();
+    animationTime = 0;
     selectTowerType('standard');
     updateDisplays(performance.now());
 }
@@ -1076,6 +1090,7 @@ function updateWaves(now) {
 function update(dt) {
     if (!gameRunning || gameEnded) return;
     const now = performance.now();
+    animationTime += dt;
 
     updateAbilityButtons(now);
     updateWaves(now);
@@ -1124,18 +1139,6 @@ function drawTowers() {
         const data = TOWER_DATA[tower.type];
         const {x, y} = getTowerCenter(tower);
         const stats = getCurrentTowerStats(tower);
-
-        const drawPolygon = (cx, cy, radius, sides, rotation = 0) => {
-            ctx.beginPath();
-            for (let i = 0; i < sides; i++) {
-                const angle = rotation + (Math.PI * 2 * i) / sides;
-                const px = cx + Math.cos(angle) * radius;
-                const py = cy + Math.sin(angle) * radius;
-                if (i === 0) ctx.moveTo(px, py);
-                else ctx.lineTo(px, py);
-            }
-            ctx.closePath();
-        };
 
         ctx.fillStyle = data.color;
         if (tower.type === 'splash') {
@@ -1234,8 +1237,8 @@ function drawSlugs() {
     for (const slug of slugs) {
         if (!slug.alive) continue;
         const heading = Math.atan2(slug.dirY, slug.dirX);
-        const wiggle = Math.sin(performance.now() * 0.01 + slug.pathIndex) * 2;
-        const yOffset = slug.flying ? Math.sin(performance.now() * 0.008 + slug.pathIndex * 0.7) * 4 : 0;
+        const wiggle = Math.sin(animationTime * 10 + slug.pathIndex) * 2;
+        const yOffset = slug.flying ? Math.sin(animationTime * 8 + slug.pathIndex * 0.7) * 4 : 0;
 
         ctx.save();
         ctx.translate(slug.x, slug.y + yOffset);
