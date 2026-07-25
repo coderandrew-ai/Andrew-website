@@ -1,0 +1,810 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>Last Stand: Survival</title>
+  <style>
+    :root {
+      --bg-1: #0f1020;
+      --bg-2: #16223a;
+      --panel: rgba(9, 12, 24, 0.78);
+      --text: #e8f0ff;
+      --accent: #53f5c9;
+      --warn: #ff8661;
+      --gold: #ffd166;
+      --xp: #59c3ff;
+      --enemy: #ff6b6b;
+      --enemy-2: #ff9f43;
+      --hero: #9ad1ff;
+    }
+
+    * {
+      box-sizing: border-box;
+    }
+
+    body {
+      margin: 0;
+      min-height: 100vh;
+      font-family: "Trebuchet MS", "Segoe UI", sans-serif;
+      color: var(--text);
+      background:
+        radial-gradient(1200px 600px at 15% -10%, #2c3e6f 0%, transparent 50%),
+        radial-gradient(900px 500px at 95% 100%, #213f34 0%, transparent 45%),
+        linear-gradient(145deg, var(--bg-1), var(--bg-2));
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      padding: 18px;
+      overflow: hidden;
+    }
+
+    .game-shell {
+      width: min(100%, 1000px);
+      border: 2px solid rgba(255, 255, 255, 0.15);
+      border-radius: 14px;
+      box-shadow: 0 16px 55px rgba(0, 0, 0, 0.45);
+      background: rgba(0, 0, 0, 0.25);
+      position: relative;
+      overflow: hidden;
+    }
+
+    canvas {
+      width: 100%;
+      display: block;
+      background:
+        radial-gradient(circle at center, rgba(255, 255, 255, 0.03), transparent 60%),
+        repeating-linear-gradient(
+          0deg,
+          rgba(255, 255, 255, 0.015),
+          rgba(255, 255, 255, 0.015) 1px,
+          transparent 1px,
+          transparent 30px
+        ),
+        repeating-linear-gradient(
+          90deg,
+          rgba(255, 255, 255, 0.015),
+          rgba(255, 255, 255, 0.015) 1px,
+          transparent 1px,
+          transparent 30px
+        ),
+        #0a1022;
+    }
+
+    .hud {
+      position: absolute;
+      inset: 0;
+      pointer-events: none;
+      display: flex;
+      flex-direction: column;
+      justify-content: space-between;
+      padding: 14px;
+    }
+
+    .top-row,
+    .bottom-row {
+      display: flex;
+      gap: 10px;
+      flex-wrap: wrap;
+      align-items: center;
+    }
+
+    .chip {
+      background: var(--panel);
+      border: 1px solid rgba(255, 255, 255, 0.12);
+      border-radius: 999px;
+      padding: 6px 10px;
+      font-size: 0.9rem;
+      backdrop-filter: blur(2px);
+    }
+
+    .xp-bar {
+      width: 210px;
+      height: 12px;
+      border-radius: 999px;
+      background: rgba(255, 255, 255, 0.16);
+      overflow: hidden;
+      border: 1px solid rgba(255, 255, 255, 0.2);
+    }
+
+    .xp-fill {
+      width: 0;
+      height: 100%;
+      background: linear-gradient(90deg, #5bd6ff, #48a7ff);
+      transition: width 0.2s linear;
+    }
+
+    .overlay {
+      position: absolute;
+      inset: 0;
+      display: none;
+      align-items: center;
+      justify-content: center;
+      background: rgba(4, 6, 15, 0.72);
+      z-index: 10;
+      pointer-events: auto;
+      padding: 16px;
+    }
+
+    .overlay.show {
+      display: flex;
+      animation: fadeIn 0.25s ease;
+    }
+
+    .panel {
+      width: min(95%, 680px);
+      background: rgba(6, 10, 22, 0.92);
+      border: 1px solid rgba(255, 255, 255, 0.16);
+      border-radius: 14px;
+      padding: 18px;
+      box-shadow: 0 12px 40px rgba(0, 0, 0, 0.45);
+    }
+
+    h1, h2 {
+      margin: 0 0 8px;
+      letter-spacing: 0.02em;
+    }
+
+    p {
+      margin: 6px 0;
+      color: #d2def5;
+    }
+
+    ul {
+      margin: 8px 0 0;
+      padding-left: 18px;
+      color: #d2def5;
+    }
+
+    .choices {
+      margin-top: 12px;
+      display: grid;
+      grid-template-columns: repeat(3, minmax(0, 1fr));
+      gap: 10px;
+    }
+
+    .choice {
+      border: 1px solid rgba(255, 255, 255, 0.16);
+      border-radius: 10px;
+      background: rgba(255, 255, 255, 0.04);
+      padding: 10px;
+      min-height: 120px;
+      color: var(--text);
+      width: 100%;
+      text-align: left;
+      cursor: pointer;
+      transition: transform 0.12s ease, border-color 0.12s ease, background 0.12s ease;
+      font: inherit;
+    }
+
+    .choice:hover,
+    .choice:focus-visible {
+      transform: translateY(-2px);
+      border-color: rgba(89, 195, 255, 0.95);
+      background: rgba(89, 195, 255, 0.12);
+      outline: none;
+    }
+
+    .choice strong {
+      display: block;
+      margin-bottom: 6px;
+      color: #fff;
+    }
+
+    .choice .kbd {
+      color: var(--gold);
+      font-weight: 700;
+    }
+
+    .game-over {
+      display: grid;
+      gap: 8px;
+      text-align: center;
+    }
+
+    .help {
+      font-size: 0.84rem;
+      opacity: 0.9;
+    }
+
+    .back-link {
+      margin-top: 12px;
+      color: var(--accent);
+      text-decoration: none;
+      font-size: 0.9rem;
+    }
+
+    .back-link:hover {
+      text-decoration: underline;
+    }
+
+    @keyframes fadeIn {
+      from { opacity: 0; transform: translateY(8px); }
+      to { opacity: 1; transform: translateY(0); }
+    }
+
+    @media (max-width: 700px) {
+      .choices {
+        grid-template-columns: 1fr;
+      }
+
+      .chip {
+        font-size: 0.82rem;
+      }
+
+      .xp-bar {
+        width: 140px;
+      }
+    }
+  </style>
+</head>
+<body>
+  <div class="game-shell">
+    <canvas id="game" width="960" height="560" aria-label="survival game canvas"></canvas>
+
+    <div class="hud">
+      <div class="top-row">
+        <div class="chip" id="healthChip">HP: 100</div>
+        <div class="chip" id="levelChip">Level: 1</div>
+        <div class="chip" id="killsChip">Kills: 0</div>
+        <div class="chip">XP
+          <div class="xp-bar"><div class="xp-fill" id="xpFill"></div></div>
+        </div>
+      </div>
+
+      <div class="bottom-row">
+        <div class="chip" id="weaponChip">Weapon: Blaster</div>
+        <div class="chip" id="timeChip">Time: 0s</div>
+        <div class="chip help">Move: Arrow keys | Shoot: Space | Restart: R</div>
+      </div>
+    </div>
+
+    <div class="overlay show" id="introOverlay">
+      <div class="panel">
+        <h1>Last Stand: Survival</h1>
+        <p>Survive as long as you can. Enemies chase you nonstop.</p>
+        <ul>
+          <li>Use arrow keys to move.</li>
+          <li>Press space to shoot. Hold space for rapid fire.</li>
+          <li>Defeated enemies drop XP shards.</li>
+          <li>On level up, choose an upgrade with keys 1, 2, or 3.</li>
+          <li>Upgrades stack, so you can run multiple powers at once.</li>
+          <li>A boss appears every 2 minutes. Keep moving.</li>
+          <li>Bosses have special attacks and unique behavior.</li>
+        </ul>
+        <p><strong>Press Enter to start.</strong></p>
+        <a href="index.html" class="back-link">← Back to Website</a>
+      </div>
+    </div>
+
+    <div class="overlay" id="levelOverlay">
+      <div class="panel">
+        <h2>Level Up</h2>
+        <p>Choose your upgrade: press 1, 2, or 3.</p>
+        <div class="choices" id="choiceGrid"></div>
+      </div>
+    </div>
+
+    <div class="overlay" id="gameOverOverlay">
+      <div class="panel game-over">
+        <h2>Game Over</h2>
+        <p id="finalStats"></p>
+        <p>Press R to restart.</p>
+        <a href="index.html" class="back-link">← Back to Website</a>
+      </div>
+    </div>
+  </div>
+
+  <script>
+    const canvas = document.getElementById("game");
+    const ctx = canvas.getContext("2d");
+
+    const healthChip = document.getElementById("healthChip");
+    const levelChip = document.getElementById("levelChip");
+    const killsChip = document.getElementById("killsChip");
+    const weaponChip = document.getElementById("weaponChip");
+    const timeChip = document.getElementById("timeChip");
+    const xpFill = document.getElementById("xpFill");
+
+    const introOverlay = document.getElementById("introOverlay");
+    const levelOverlay = document.getElementById("levelOverlay");
+    const gameOverOverlay = document.getElementById("gameOverOverlay");
+    const finalStats = document.getElementById("finalStats");
+    const choiceGrid = document.getElementById("choiceGrid");
+
+    const keys = {
+      ArrowUp: false,
+      ArrowDown: false,
+      ArrowLeft: false,
+      ArrowRight: false,
+      " ": false,
+      Spacebar: false,
+    };
+
+    const rand = (min, max) => Math.random() * (max - min) + min;
+    const clamp = (v, min, max) => Math.max(min, Math.min(max, v));
+
+    let state;
+    let lastTime = 0;
+
+    function xpForLevel(level) {
+      return 55 + (level - 1) * 28;
+    }
+
+    function refreshWeaponLabel() {
+      let primary = "Blaster";
+      if (state.player.pierce > 0) {
+        primary = "Rail Blaster";
+      } else if (state.player.multiBurst >= 2) {
+        primary = "Burst Driver";
+      } else if (state.player.bulletCount >= 3) {
+        primary = "Spread Cannon";
+      }
+
+      const tags = [primary];
+      if (state.player.orbitLevel > 0) tags.push("Orbit Blades");
+      if (state.player.rocketLevel > 0) tags.push("Rocket Pod");
+      if (state.player.lightningLevel > 0) tags.push("Chain Arc");
+      if (state.player.forceFieldLevel > 0) tags.push("Force Field");
+      state.weaponName = tags.join(" + ");
+    }
+
+    function resetGame() {
+      state = {
+        running: false,
+        pausedForLevel: false,
+        gameOver: false,
+        timeAlive: 0,
+        player: {
+          x: canvas.width / 2,
+          y: canvas.height / 2,
+          radius: 14,
+          speed: 235,
+          hp: 100,
+          maxHp: 100,
+          shootCooldown: 0,
+          fireRate: 0.24,
+          bulletSpeed: 500,
+          bulletDamage: 24,
+          bulletCount: 1,
+          spread: 0.15,
+          multiBurst: 1,
+          pierce: 0,
+          orbitLevel: 0,
+          orbitCount: 0,
+          orbitDamage: 0,
+          orbitRadius: 54,
+          orbitSpeed: 2.4,
+          rocketLevel: 0,
+          rocketCooldown: 1.2,
+          rocketTimer: 0,
+          rocketDamage: 70,
+          rocketBlastRadius: 64,
+          lightningLevel: 0,
+          lightningCooldown: 1.45,
+          lightningTimer: 0,
+          lightningDamage: 45,
+          lightningChains: 1,
+          lightningRange: 170,
+          forceFieldLevel: 0,
+          forceFieldRadius: 46,
+          forceFieldDamage: 26,
+          forceFieldTick: 0.28,
+          regenLevel: 0,
+          regenPerSecond: 0,
+        },
+        bullets: [],
+        rockets: [],
+        enemyProjectiles: [],
+        lightningEffects: [],
+        enemies: [],
+        particles: [],
+        xpShards: [],
+        spawnTimer: 0,
+        spawnRate: 0.95,
+        enemySpeedBonus: 0,
+        nextBossTime: 120,
+        bossesSpawned: 0,
+        kills: 0,
+        xp: 0,
+        level: 1,
+        xpToNext: xpForLevel(1),
+        weaponName: "Blaster",
+        choices: [],
+      };
+
+      refreshWeaponLabel();
+      updateHud();
+      gameOverOverlay.classList.remove("show");
+      levelOverlay.classList.remove("show");
+      introOverlay.classList.add("show");
+    }
+
+    function updateHud() {
+      healthChip.textContent = `HP: ${Math.max(0, Math.floor(state.player.hp))}`;
+      levelChip.textContent = `Level: ${state.level}`;
+      killsChip.textContent = `Kills: ${state.kills}`;
+      weaponChip.textContent = `Weapon: ${state.weaponName}`;
+      timeChip.textContent = `Time: ${Math.floor(state.timeAlive)}s`;
+      xpFill.style.width = `${clamp((state.xp / state.xpToNext) * 100, 0, 100)}%`;
+    }
+
+    function startGame() {
+      introOverlay.classList.remove("show");
+      state.running = true;
+    }
+
+    function chooseTargetDirection() {
+      const nearest = state.enemies.reduce(
+        (best, e) => {
+          const dx = e.x - state.player.x;
+          const dy = e.y - state.player.y;
+          const d2 = dx * dx + dy * dy;
+          return d2 < best.d2 ? { enemy: e, d2 } : best;
+        },
+        { enemy: null, d2: Infinity }
+      ).enemy;
+
+      if (!nearest) {
+        return { x: 1, y: 0 };
+      }
+
+      const dx = nearest.x - state.player.x;
+      const dy = nearest.y - state.player.y;
+      const len = Math.hypot(dx, dy) || 1;
+      return { x: dx / len, y: dy / len };
+    }
+
+    function shoot() {
+      const p = state.player;
+      const baseDir = chooseTargetDirection();
+      const total = p.bulletCount;
+
+      for (let burst = 0; burst < p.multiBurst; burst++) {
+        for (let i = 0; i < total; i++) {
+          const t = total === 1 ? 0 : i / (total - 1) - 0.5;
+          const angle = Math.atan2(baseDir.y, baseDir.x) + t * p.spread;
+          state.bullets.push({
+            x: p.x,
+            y: p.y,
+            vx: Math.cos(angle) * p.bulletSpeed,
+            vy: Math.sin(angle) * p.bulletSpeed,
+            damage: p.bulletDamage,
+            radius: 4,
+            life: 1.4,
+            pierce: p.pierce,
+            color: p.bulletCount > 1 ? "#ffe58a" : "#a3d5ff",
+          });
+        }
+      }
+    }
+
+    function spawnEnemy() {
+      const edge = Math.floor(rand(0, 4));
+      let x = 0, y = 0;
+
+      if (edge === 0) {
+        x = rand(0, canvas.width);
+        y = -20;
+      } else if (edge === 1) {
+        x = canvas.width + 20;
+        y = rand(0, canvas.height);
+      } else if (edge === 2) {
+        x = rand(0, canvas.width);
+        y = canvas.height + 20;
+      } else {
+        x = -20;
+        y = rand(0, canvas.height);
+      }
+
+      const eliteRoll = Math.random();
+      const elite = eliteRoll < Math.min(0.26, 0.08 + state.timeAlive * 0.0025);
+
+      const hpBase = elite ? 72 : 42;
+      const speedBase = elite ? 84 : 106;
+      const size = elite ? 16 : 12;
+
+      state.enemies.push({
+        x, y, radius: size,
+        speed: speedBase + state.enemySpeedBonus + state.timeAlive * 1.4,
+        hp: hpBase + state.level * (elite ? 9 : 5),
+        maxHp: hpBase + state.level * (elite ? 9 : 5),
+        touchDamage: elite ? 20 : 12,
+        xpValue: elite ? 28 : 12,
+        color: elite ? "#ff9f43" : "#ff6b6b",
+        forceFieldHitTimer: 0,
+        orbitHitTimer: 0,
+        isBoss: false,
+      });
+    }
+
+    function spawnBoss() {
+      const bossTypes = ["artillery", "swift", "tank"];
+      const type = bossTypes[Math.floor(Math.random() * bossTypes.length)];
+
+      const edge = Math.floor(rand(0, 4));
+      let x = 0, y = 0;
+
+      if (edge === 0) {
+        x = rand(80, canvas.width - 80);
+        y = -40;
+      } else if (edge === 1) {
+        x = canvas.width + 40;
+        y = rand(80, canvas.height - 80);
+      } else if (edge === 2) {
+        x = rand(80, canvas.width - 80);
+        y = canvas.height + 40;
+      } else {
+        x = -40;
+        y = rand(80, canvas.height - 80);
+      }
+
+      const bossHp = 280 + state.level * 45;
+      state.enemies.push({
+        x, y, radius: 28,
+        speed: 55 + state.timeAlive * 0.6,
+        hp: bossHp,
+        maxHp: bossHp,
+        touchDamage: 35,
+        xpValue: 180,
+        color: "#d946ef",
+        isBoss: true,
+        bossType: type,
+        bossAttackCooldown: type === "artillery" ? 1.8 : type === "swift" ? 0.4 : 2.2,
+        bossAttackTimer: 0,
+        forceFieldHitTimer: 0,
+        orbitHitTimer: 0,
+      });
+    }
+
+    function update(dt) {
+      if (!state.running) return;
+
+      state.timeAlive += dt;
+      state.player.shootCooldown -= dt;
+
+      // Movement
+      const moveDir = { x: 0, y: 0 };
+      if (keys.ArrowUp || keys.w) moveDir.y -= 1;
+      if (keys.ArrowDown || keys.s) moveDir.y += 1;
+      if (keys.ArrowLeft || keys.a) moveDir.x -= 1;
+      if (keys.ArrowRight || keys.d) moveDir.x += 1;
+
+      const moveLen = Math.hypot(moveDir.x, moveDir.y);
+      if (moveLen > 0) {
+        const moveSpeed = state.player.speed * dt;
+        state.player.x += (moveDir.x / moveLen) * moveSpeed;
+        state.player.y += (moveDir.y / moveLen) * moveSpeed;
+      }
+
+      state.player.x = clamp(state.player.x, state.player.radius, canvas.width - state.player.radius);
+      state.player.y = clamp(state.player.y, state.player.radius, canvas.height - state.player.radius);
+
+      // Shooting
+      if (keys[" "] && state.player.shootCooldown <= 0) {
+        shoot();
+        state.player.shootCooldown = state.player.fireRate;
+      }
+
+      // Regen
+      if (state.player.regenLevel > 0) {
+        state.player.hp = Math.min(state.player.maxHp, state.player.hp + state.player.regenPerSecond * dt);
+      }
+
+      // Update bullets
+      for (let i = state.bullets.length - 1; i >= 0; i--) {
+        const b = state.bullets[i];
+        b.x += b.vx * dt;
+        b.y += b.vy * dt;
+        b.life -= dt;
+        if (b.life <= 0 || b.x < 0 || b.x > canvas.width || b.y < 0 || b.y > canvas.height) {
+          state.bullets.splice(i, 1);
+        }
+      }
+
+      // Update enemies and check collisions
+      for (let i = state.enemies.length - 1; i >= 0; i--) {
+        const e = state.enemies[i];
+        if (!e) continue;
+
+        const dx = state.player.x - e.x;
+        const dy = state.player.y - e.y;
+        const dist = Math.hypot(dx, dy);
+
+        if (dist < state.player.radius + e.radius) {
+          state.player.hp -= e.touchDamage * dt;
+        }
+
+        // Move towards player
+        if (dist > 0) {
+          const moveSpeed = e.speed * dt;
+          e.x += (dx / dist) * moveSpeed;
+          e.y += (dy / dist) * moveSpeed;
+        }
+
+        // Check bullet collisions
+        for (let j = state.bullets.length - 1; j >= 0; j--) {
+          const b = state.bullets[j];
+          const bdx = b.x - e.x;
+          const bdy = b.y - e.y;
+          const bdist = Math.hypot(bdx, bdy);
+
+          if (bdist < b.radius + e.radius) {
+            e.hp -= b.damage;
+            if (b.pierce <= 0) {
+              state.bullets.splice(j, 1);
+            } else {
+              b.pierce--;
+            }
+
+            if (e.hp <= 0) {
+              state.kills++;
+              state.xp += e.xpValue;
+              state.enemies.splice(i, 1);
+              break;
+            }
+          }
+        }
+      }
+
+      // Spawn enemies
+      state.spawnTimer -= dt;
+      if (state.spawnTimer <= 0) {
+        spawnEnemy();
+        state.spawnRate = Math.max(0.2, 0.95 - state.timeAlive * 0.035);
+        state.spawnTimer = state.spawnRate;
+      }
+
+      // Boss spawning
+      state.nextBossTime -= dt;
+      if (state.nextBossTime <= 0) {
+        spawnBoss();
+        state.nextBossTime = 120;
+        state.bossesSpawned++;
+      }
+
+      // Level up check
+      if (state.xp >= state.xpToNext) {
+        state.xp = 0;
+        state.level++;
+        state.xpToNext = xpForLevel(state.level);
+        state.running = false;
+        state.pausedForLevel = true;
+        showLevelUp();
+      }
+
+      // Game over check
+      if (state.player.hp <= 0) {
+        state.running = false;
+        state.gameOver = true;
+        showGameOver();
+      }
+
+      updateHud();
+    }
+
+    function draw() {
+      ctx.fillStyle = "#0a1022";
+      ctx.fillRect(0, 0, canvas.width, canvas.height);
+
+      // Draw enemies
+      state.enemies.forEach(e => {
+        ctx.fillStyle = e.color;
+        ctx.beginPath();
+        ctx.arc(e.x, e.y, e.radius, 0, Math.PI * 2);
+        ctx.fill();
+
+        const hpPercent = e.hp / e.maxHp;
+        ctx.fillStyle = hpPercent > 0.5 ? "#4ade80" : hpPercent > 0.25 ? "#fbbf24" : "#f87171";
+        ctx.fillRect(e.x - e.radius, e.y - e.radius - 8, e.radius * 2 * hpPercent, 4);
+      });
+
+      // Draw bullets
+      state.bullets.forEach(b => {
+        ctx.fillStyle = b.color;
+        ctx.beginPath();
+        ctx.arc(b.x, b.y, b.radius, 0, Math.PI * 2);
+        ctx.fill();
+      });
+
+      // Draw player
+      ctx.fillStyle = "#9ad1ff";
+      ctx.beginPath();
+      ctx.arc(state.player.x, state.player.y, state.player.radius, 0, Math.PI * 2);
+      ctx.fill();
+
+      ctx.strokeStyle = "#53f5c9";
+      ctx.lineWidth = 2;
+      ctx.beginPath();
+      ctx.arc(state.player.x, state.player.y, state.player.radius + 6, 0, Math.PI * 2);
+      ctx.stroke();
+    }
+
+    function showLevelUp() {
+      const upgrades = [
+        { name: "Spread Shot", desc: "Add bullet" },
+        { name: "Piercing", desc: "Bullets pierce" },
+        { name: "Faster Fire", desc: "+20% fire rate" },
+        { name: "Speed Boost", desc: "+15% speed" },
+        { name: "Max HP Up", desc: "+25 HP" },
+        { name: "Orbit Blades", desc: "Spin defense" },
+        { name: "Rocket Pod", desc: "Explosive power" },
+        { name: "Chain Arc", desc: "Lightning" },
+        { name: "Force Field", desc: "Protective ring" },
+        { name: "Regeneration", desc: "Passive heal" },
+      ];
+
+      state.choices = [];
+      for (let i = 0; i < 3; i++) {
+        const idx = Math.floor(Math.random() * upgrades.length);
+        state.choices.push(upgrades[idx]);
+      }
+
+      choiceGrid.innerHTML = state.choices.map((c, i) => `
+        <button class="choice" onclick="selectUpgrade(${i})" onkeydown="if(event.key === '${i+1}') selectUpgrade(${i})">
+          <strong>${c.name}</strong>
+          <span class="kbd">${i+1}</span>
+          ${c.desc}
+        </button>
+      `).join("");
+
+      levelOverlay.classList.add("show");
+    }
+
+    window.selectUpgrade = function(idx) {
+      const upgrade = state.choices[idx];
+      const p = state.player;
+
+      switch (upgrade.name) {
+        case "Spread Shot": p.bulletCount++; break;
+        case "Piercing": p.pierce++; break;
+        case "Faster Fire": p.fireRate *= 0.8; break;
+        case "Speed Boost": p.speed *= 1.15; break;
+        case "Max HP Up": p.maxHp += 25; p.hp += 25; break;
+        case "Orbit Blades": p.orbitLevel++; p.orbitDamage = 15 + p.orbitLevel * 8; break;
+        case "Rocket Pod": p.rocketLevel++; break;
+        case "Chain Arc": p.lightningLevel++; break;
+        case "Force Field": p.forceFieldLevel++; break;
+        case "Regeneration": p.regenLevel++; p.regenPerSecond = 5 + p.regenLevel * 3; break;
+      }
+
+      refreshWeaponLabel();
+      levelOverlay.classList.remove("show");
+      state.running = true;
+      state.pausedForLevel = false;
+    };
+
+    function showGameOver() {
+      finalStats.textContent = `Survived ${Math.floor(state.timeAlive)}s • Killed ${state.kills} enemies • Level ${state.level}`;
+      gameOverOverlay.classList.add("show");
+    }
+
+    function gameLoop(now) {
+      const dt = Math.min((now - lastTime) / 1000, 0.016);
+      lastTime = now;
+
+      if (state.running) {
+        update(dt);
+      }
+      draw();
+      requestAnimationFrame(gameLoop);
+    }
+
+    document.addEventListener("keydown", (e) => {
+      if (e.key in keys) keys[e.key] = true;
+      if (e.key === "Enter" && !state.running && !state.pausedForLevel && !state.gameOver) startGame();
+      if (e.key === "r" || e.key === "R") { resetGame(); }
+      if (e.key === "1") selectUpgrade(0);
+      if (e.key === "2") selectUpgrade(1);
+      if (e.key === "3") selectUpgrade(2);
+    });
+
+    document.addEventListener("keyup", (e) => {
+      if (e.key in keys) keys[e.key] = false;
+    });
+
+    resetGame();
+    requestAnimationFrame(gameLoop);
+  </script>
+</body>
+</html>
