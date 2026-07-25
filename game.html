@@ -597,6 +597,8 @@ function createSlugForWave(wave) {
         x: start.x,
         y: start.y,
         pathIndex: 0,
+        dirX: 1,
+        dirY: 0,
         hp,
         maxHp: hp,
         armor,
@@ -957,12 +959,18 @@ function updateSlugs(dt, now) {
             const dist = Math.hypot(dx, dy);
 
             if (dist <= remainingMove) {
+                if (dist > 0) {
+                    slug.dirX = dx / dist;
+                    slug.dirY = dy / dist;
+                }
                 slug.x = target.x;
                 slug.y = target.y;
                 slug.pathIndex = nextIndex;
                 remainingMove -= dist;
             } else {
                 const ratio = remainingMove / dist;
+                slug.dirX = dx / dist;
+                slug.dirY = dy / dist;
                 slug.x += dx * ratio;
                 slug.y += dy * ratio;
                 remainingMove = 0;
@@ -1117,16 +1125,95 @@ function drawTowers() {
         const {x, y} = getTowerCenter(tower);
         const stats = getCurrentTowerStats(tower);
 
+        const drawPolygon = (cx, cy, radius, sides, rotation = 0) => {
+            ctx.beginPath();
+            for (let i = 0; i < sides; i++) {
+                const angle = rotation + (Math.PI * 2 * i) / sides;
+                const px = cx + Math.cos(angle) * radius;
+                const py = cy + Math.sin(angle) * radius;
+                if (i === 0) ctx.moveTo(px, py);
+                else ctx.lineTo(px, py);
+            }
+            ctx.closePath();
+        };
+
         ctx.fillStyle = data.color;
-        ctx.beginPath();
-        ctx.arc(x, y, 17, 0, Math.PI * 2);
-        ctx.fill();
+        if (tower.type === 'splash') {
+            ctx.save();
+            ctx.translate(x, y);
+            ctx.rotate(Math.PI / 4);
+            ctx.fillRect(-14, -14, 28, 28);
+            ctx.restore();
+        } else if (tower.type === 'frost') {
+            drawPolygon(x, y, 18, 4, Math.PI / 4);
+            ctx.fill();
+        } else if (tower.type === 'fire') {
+            drawPolygon(x, y, 18, 6, Math.PI / 6);
+            ctx.fill();
+        } else if (tower.type === 'air') {
+            drawPolygon(x, y, 18, 3, -Math.PI / 2);
+            ctx.fill();
+        } else if (tower.type === 'sniper') {
+            drawPolygon(x, y, 17, 8, Math.PI / 8);
+            ctx.fill();
+        } else if (tower.type === 'machine') {
+            drawPolygon(x, y, 16, 10, Math.PI / 10);
+            ctx.fill();
+        } else {
+            ctx.beginPath();
+            ctx.arc(x, y, 17, 0, Math.PI * 2);
+            ctx.fill();
+        }
 
         ctx.strokeStyle = '#fff';
         ctx.lineWidth = 2;
-        ctx.beginPath();
-        ctx.arc(x, y, 17, 0, Math.PI * 2);
-        ctx.stroke();
+        if (tower.type === 'splash') {
+            ctx.save();
+            ctx.translate(x, y);
+            ctx.rotate(Math.PI / 4);
+            ctx.strokeRect(-14, -14, 28, 28);
+            ctx.restore();
+        } else if (tower.type === 'frost') {
+            drawPolygon(x, y, 18, 4, Math.PI / 4);
+            ctx.stroke();
+        } else if (tower.type === 'fire') {
+            drawPolygon(x, y, 18, 6, Math.PI / 6);
+            ctx.stroke();
+        } else if (tower.type === 'air') {
+            drawPolygon(x, y, 18, 3, -Math.PI / 2);
+            ctx.stroke();
+        } else if (tower.type === 'sniper') {
+            drawPolygon(x, y, 17, 8, Math.PI / 8);
+            ctx.stroke();
+        } else if (tower.type === 'machine') {
+            drawPolygon(x, y, 16, 10, Math.PI / 10);
+            ctx.stroke();
+        } else {
+            ctx.beginPath();
+            ctx.arc(x, y, 17, 0, Math.PI * 2);
+            ctx.stroke();
+        }
+
+        if (tower.type === 'sniper') {
+            ctx.strokeStyle = 'rgba(255,255,255,0.75)';
+            ctx.lineWidth = 1.5;
+            ctx.beginPath();
+            ctx.moveTo(x - 8, y);
+            ctx.lineTo(x + 8, y);
+            ctx.moveTo(x, y - 8);
+            ctx.lineTo(x, y + 8);
+            ctx.stroke();
+        } else if (tower.type === 'machine') {
+            ctx.fillStyle = 'rgba(255,255,255,0.65)';
+            ctx.beginPath();
+            ctx.arc(x, y, 5, 0, Math.PI * 2);
+            ctx.fill();
+        } else if (tower.type === 'air') {
+            ctx.fillStyle = 'rgba(255,255,255,0.65)';
+            ctx.beginPath();
+            ctx.arc(x, y + 4, 4, 0, Math.PI * 2);
+            ctx.fill();
+        }
 
         ctx.fillStyle = '#fff';
         ctx.font = '12px system-ui';
@@ -1146,25 +1233,55 @@ function drawTowers() {
 function drawSlugs() {
     for (const slug of slugs) {
         if (!slug.alive) continue;
+        const heading = Math.atan2(slug.dirY, slug.dirX);
+        const wiggle = Math.sin(performance.now() * 0.01 + slug.pathIndex) * 2;
+        const yOffset = slug.flying ? Math.sin(performance.now() * 0.008 + slug.pathIndex * 0.7) * 4 : 0;
+
+        ctx.save();
+        ctx.translate(slug.x, slug.y + yOffset);
+        ctx.rotate(heading);
 
         ctx.fillStyle = slug.flying ? '#f7d46d' : slug.color;
         ctx.beginPath();
-        ctx.ellipse(slug.x, slug.y, slug.flying ? 12 : 11, slug.flying ? 8 : 10, 0, 0, Math.PI * 2);
+        ctx.ellipse(0, 0, slug.flying ? 12 : 11, slug.flying ? 8 : 10, 0, 0, Math.PI * 2);
         ctx.fill();
+
+        ctx.fillStyle = 'rgba(255,255,255,0.3)';
+        ctx.beginPath();
+        ctx.ellipse(-4, -3, 4, 2, 0, 0, Math.PI * 2);
+        ctx.fill();
+
+        if (slug.flying) {
+            ctx.strokeStyle = 'rgba(255,255,255,0.75)';
+            ctx.lineWidth = 1.5;
+            ctx.beginPath();
+            ctx.moveTo(-4, -3);
+            ctx.lineTo(-12, -6 - wiggle * 0.25);
+            ctx.moveTo(-4, 3);
+            ctx.lineTo(-12, 6 + wiggle * 0.25);
+            ctx.stroke();
+        } else {
+            ctx.fillStyle = 'rgba(20, 20, 20, 0.75)';
+            ctx.beginPath();
+            ctx.arc(4, -2, 1.8, 0, Math.PI * 2);
+            ctx.fill();
+        }
+
+        ctx.restore();
 
         if (slug.slowMultiplier < 1) {
             ctx.strokeStyle = 'rgba(100, 190, 255, 0.95)';
             ctx.lineWidth = 2;
             ctx.beginPath();
-            ctx.arc(slug.x, slug.y, 14, 0, Math.PI * 2);
+            ctx.arc(slug.x, slug.y + yOffset, 14, 0, Math.PI * 2);
             ctx.stroke();
         }
 
         const hpWidth = 20;
         ctx.fillStyle = '#2d2d2d';
-        ctx.fillRect(slug.x - hpWidth / 2, slug.y - 16, hpWidth, 4);
+        ctx.fillRect(slug.x - hpWidth / 2, slug.y + yOffset - 16, hpWidth, 4);
         ctx.fillStyle = '#7CFC00';
-        ctx.fillRect(slug.x - hpWidth / 2, slug.y - 16, Math.max(0, slug.hp / slug.maxHp) * hpWidth, 4);
+        ctx.fillRect(slug.x - hpWidth / 2, slug.y + yOffset - 16, Math.max(0, slug.hp / slug.maxHp) * hpWidth, 4);
     }
 }
 
