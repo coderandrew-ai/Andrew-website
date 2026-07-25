@@ -298,7 +298,9 @@ const MAX_LEAKS = 10;
 const MAX_WAVES = 30;
 const WAVE_CLEAR_DELAY = 1300;
 const MAX_DELTA_TIME = 0.05;
-const BASE_ARMOR_SCALE = 0.7;
+// Armor growth multiplier applied per wave for baseline slug armor scaling.
+const WAVE_ARMOR_MULTIPLIER = 0.7;
+// Minimum damage guarantees every hit always chips at least 1 HP.
 const MIN_DAMAGE = 1;
 
 const pathTiles = [
@@ -522,7 +524,7 @@ function createSlugForWave(wave) {
     const config = waveConfigs[wave - 1] || {type:'normal'};
     // Baseline armor scales with wave; specialty slug types add fixed bonuses below.
     let hp = 36 + wave * 14;
-    let armor = Math.max(0, wave - 5) * BASE_ARMOR_SCALE;
+    let armor = Math.max(0, wave - 5) * WAVE_ARMOR_MULTIPLIER;
     let speed = 34 + wave * 2.9;
     let color = '#537C2A';
     let reward = 5;
@@ -601,10 +603,18 @@ function applyFrost(slug, multiplier, duration) {
 }
 
 function applyBurn(slug, damage, duration, tickEvery) {
-    slug.burnDamage = Math.max(slug.burnDamage, damage);
-    slug.burnTickEvery = tickEvery;
-    slug.burnTicksRemaining = Math.max(slug.burnTicksRemaining, Math.floor(duration / tickEvery));
-    slug.burnTickTimer = Math.min(slug.burnTickTimer, 0);
+    const nextDamage = Math.max(slug.burnDamage, damage);
+    const refreshedTicks = Math.max(1, Math.ceil(duration / tickEvery));
+
+    if (nextDamage > slug.burnDamage || slug.burnTicksRemaining <= 0) {
+        slug.burnDamage = nextDamage;
+        slug.burnTickEvery = tickEvery;
+        slug.burnTicksRemaining = refreshedTicks;
+        slug.burnTickTimer = tickEvery;
+        return;
+    }
+
+    slug.burnTicksRemaining = Math.max(slug.burnTicksRemaining, refreshedTicks);
 }
 
 function canTowerTargetSlug(tower, slug) {
@@ -836,9 +846,9 @@ function updateSlugs(dt, now) {
 
         if (slug.burnTicksRemaining > 0) {
             slug.burnTickTimer -= dt;
-            while (slug.burnTicksRemaining > 0 && slug.burnTickTimer <= 0 && slug.alive) {
+            if (slug.burnTickTimer <= 0 && slug.alive) {
                 damageSlug(slug, slug.burnDamage);
-                slug.burnTickTimer += slug.burnTickEvery;
+                slug.burnTickTimer = Math.max(0, slug.burnTickTimer + slug.burnTickEvery);
                 slug.burnTicksRemaining -= 1;
                 addEffect(slug.x, slug.y, 6, 'rgba(255,87,34,0.5)', 0.12);
             }
@@ -1109,7 +1119,7 @@ function draw() {
 }
 
 function gameLoop(now) {
-    if (gameRunning && !gameEnded) {
+    if (gameRunning) {
         const dt = Math.min((now - lastFrameTime) / 1000, MAX_DELTA_TIME);
         lastFrameTime = now;
         update(dt);
