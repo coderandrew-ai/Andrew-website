@@ -463,6 +463,14 @@ const towerButtons = {
     machine: document.getElementById('towerTypeMachine')
 };
 
+let hudCache = {
+    wave: null,
+    coins: null,
+    leaks: null,
+    health: null,
+    waveType: null
+};
+
 function tileFromPixel(px, py) {
     const rect = canvas.getBoundingClientRect();
     const x = px - rect.left;
@@ -735,13 +743,32 @@ function updateAbilityButtons(now) {
 }
 
 function updateDisplays() {
+    const health = Math.max(0, MAX_LEAKS - leaks);
+    const config = waveConfigs[Math.max(0, currentWave - 1)] || {type:'normal'};
+    const waveType = config.type.charAt(0).toUpperCase() + config.type.slice(1);
+
+    if (
+        hudCache.wave === currentWave &&
+        hudCache.coins === coins &&
+        hudCache.leaks === leaks &&
+        hudCache.health === health &&
+        hudCache.waveType === waveType
+    ) {
+        return;
+    }
+
+    hudCache.wave = currentWave;
+    hudCache.coins = coins;
+    hudCache.leaks = leaks;
+    hudCache.health = health;
+    hudCache.waveType = waveType;
+
     waveDisplay.textContent = currentWave;
     maxWaveDisplay.textContent = MAX_WAVES;
     coinDisplay.textContent = coins;
     leakDisplay.textContent = leaks;
-    healthDisplay.textContent = Math.max(0, MAX_LEAKS - leaks);
-    const config = waveConfigs[Math.max(0, currentWave - 1)] || {type:'normal'};
-    waveTypeDisplay.textContent = config.type.charAt(0).toUpperCase() + config.type.slice(1);
+    healthDisplay.textContent = health;
+    waveTypeDisplay.textContent = waveType;
 }
 
 function startNextWave(now) {
@@ -791,6 +818,7 @@ function resetGameState() {
     fireButton.classList.remove('cooldown');
     saltButton.textContent = 'Salt storm (S)';
     fireButton.textContent = 'Fire storm (F)';
+    hudCache = {wave: null, coins: null, leaks: null, health: null, waveType: null};
     lastFrameTime = performance.now();
     selectTowerType('standard');
     updateDisplays();
@@ -848,7 +876,7 @@ function updateSlugs(dt, now) {
             slug.burnTickTimer -= dt;
             if (slug.burnTickTimer <= 0 && slug.alive) {
                 damageSlug(slug, slug.burnDamage);
-                slug.burnTickTimer = Math.max(0, slug.burnTickTimer + slug.burnTickEvery);
+                slug.burnTickTimer = slug.burnTickEvery;
                 slug.burnTicksRemaining -= 1;
                 addEffect(slug.x, slug.y, 6, 'rgba(255,87,34,0.5)', 0.12);
             }
@@ -1120,6 +1148,9 @@ function draw() {
 
 function gameLoop(now) {
     if (gameRunning) {
+        if (now - lastFrameTime > 250) {
+            lastFrameTime = now;
+        }
         const dt = Math.min((now - lastFrameTime) / 1000, MAX_DELTA_TIME);
         lastFrameTime = now;
         update(dt);
