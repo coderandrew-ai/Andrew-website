@@ -188,8 +188,8 @@
     <span>Wave: <span id="waveDisplay">0</span>/<span id="maxWaveDisplay">30</span></span>
     <span>Type: <span id="waveTypeDisplay">Normal</span></span>
     <span>Coins: <span id="coinDisplay">0</span></span>
-    <span>Health: <span id="healthDisplay">0</span></span>
-    <span>Leaks: <span id="leakDisplay">0</span>/<span id="maxLeaksDisplay">0</span></span>
+    <span>Health: <span id="healthDisplay">10</span></span>
+    <span>Leaks: <span id="leakDisplay">0</span>/<span id="maxLeaksDisplay">10</span></span>
     <span>Kills: <span id="killDisplay">0</span></span>
     <span id="nextWaveDisplay"></span>
     <button id="saltButton">Salt storm (S)</button>
@@ -1335,10 +1335,10 @@ function gameLoop(now) {
         if (now - lastFrameTime > 250) {
             lastFrameTime = now;
         }
-        const rawDt = Math.min((now - lastFrameTime) / 1000, MAX_DELTA_TIME);
+        const rawDt = (now - lastFrameTime) / 1000;
         lastFrameTime = now;
-        // gameSpeed scales simulation time; cap is applied per-step via MAX_DELTA_TIME
-        const dt = rawDt * gameSpeed;
+        // gameSpeed scales simulation time; cap is applied after scaling per-step.
+        const dt = Math.min(rawDt * gameSpeed, MAX_DELTA_TIME);
         update(dt);
         draw();
     }
