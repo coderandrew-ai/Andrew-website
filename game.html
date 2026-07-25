@@ -190,15 +190,18 @@
     <span>Coins: <span id="coinDisplay">0</span></span>
     <span>Health: <span id="healthDisplay">10</span></span>
     <span>Leaks: <span id="leakDisplay">0</span>/10</span>
+    <span>Kills: <span id="killDisplay">0</span></span>
+    <span id="nextWaveDisplay"></span>
     <button id="saltButton">Salt storm (S)</button>
     <button id="fireButton">Fire storm (F)</button>
-    <button id="towerTypeStandard" class="towerTypeButton selected">Standard</button>
-    <button id="towerTypeSplash" class="towerTypeButton">Splash</button>
-    <button id="towerTypeFrost" class="towerTypeButton">Frost</button>
-    <button id="towerTypeAir" class="towerTypeButton">Anti-air</button>
-    <button id="towerTypeFire" class="towerTypeButton">Fire</button>
-    <button id="towerTypeSniper" class="towerTypeButton">Sniper</button>
-    <button id="towerTypeMachine" class="towerTypeButton">Machine gun</button>
+    <button id="speedButton" class="towerTypeButton">2× Speed</button>
+    <button id="towerTypeStandard" class="towerTypeButton selected">Standard (15🪙)</button>
+    <button id="towerTypeSplash" class="towerTypeButton">Splash (22🪙)</button>
+    <button id="towerTypeFrost" class="towerTypeButton">Frost (22🪙)</button>
+    <button id="towerTypeAir" class="towerTypeButton">Anti-air (26🪙)</button>
+    <button id="towerTypeFire" class="towerTypeButton">Fire (24🪙)</button>
+    <button id="towerTypeSniper" class="towerTypeButton">Sniper (32🪙)</button>
+    <button id="towerTypeMachine" class="towerTypeButton">Machine gun (28🪙)</button>
 </div>
 <div id="gameContainer">
     <canvas id="gameCanvas" width="640" height="480"></canvas>
@@ -212,8 +215,10 @@
             • Choose a gnome type then click/tap empty soil: place a gnome (cost varies by type)<br>
             • Standard is cheapest, splash and frost cost more, fire costs the most.<br>
             • Click / tap a gnome: upgrade it (cost scales by tower + level)<br>
+            • <strong>Right-click</strong> a gnome: sell it for 60% of its total investment<br>
             • Press <strong>S</strong> or tap Salt storm button: damage all slugs (20s cooldown)<br>
-            • Press <strong>F</strong> or tap Fire storm button: heavy fire damage to all slugs (30s cooldown)
+            • Press <strong>F</strong> or tap Fire storm button: heavy fire damage to all slugs (30s cooldown)<br>
+            • Press <strong>2× Speed</strong> button or press <strong>X</strong> to toggle fast mode
         </p>
         <p class="small">
             • Standard: fast single shots<br>
@@ -238,6 +243,7 @@
     <div id="gameOverOverlay" class="overlay" style="display:none;">
         <h1>Game Over</h1>
         <p>The slugs feasted on your cabbage...</p>
+        <p id="gameOverKills" class="small"></p>
         <p class="small">Tip: Place gnomes near corners and upgrade them early.</p>
         <button id="retryButton">Try again</button>
     </div>
@@ -246,7 +252,7 @@
     <div id="winOverlay" class="overlay" style="display:none;">
         <h1>🎉 You Saved the Patch!</h1>
         <p>The gnomes held the line through all 30 waves.</p>
-        <p class="small">Hard mode beaten—nicely defended all 30 waves!</p>
+        <p id="winKills" class="small"></p>
         <button id="winRetryButton">Play again</button>
     </div>
 </div>
@@ -417,10 +423,12 @@ let effects = [];
 
 let coins = 40;
 let leaks = 0;
+let kills = 0;
 let currentWave = 0;
 let gameRunning = false;
 let gameEnded = false;
 let selectedTowerType = 'standard';
+let gameSpeed = 1;
 
 let waveInProgress = false;
 let waveSpawnCount = 0;
@@ -442,11 +450,14 @@ const waveDisplay = document.getElementById('waveDisplay');
 const coinDisplay = document.getElementById('coinDisplay');
 const healthDisplay = document.getElementById('healthDisplay');
 const leakDisplay = document.getElementById('leakDisplay');
+const killDisplay = document.getElementById('killDisplay');
+const nextWaveDisplay = document.getElementById('nextWaveDisplay');
 const waveTypeDisplay = document.getElementById('waveTypeDisplay');
 const maxWaveDisplay = document.getElementById('maxWaveDisplay');
 
 const saltButton = document.getElementById('saltButton');
 const fireButton = document.getElementById('fireButton');
+const speedButton = document.getElementById('speedButton');
 
 const startOverlay = document.getElementById('startOverlay');
 const gameOverOverlay = document.getElementById('gameOverOverlay');
@@ -470,7 +481,8 @@ let hudCache = {
     coins: null,
     leaks: null,
     health: null,
-    waveType: null
+    waveType: null,
+    kills: null
 };
 
 function tileFromPixel(px, py) {
@@ -511,12 +523,14 @@ function getUpgradeCost(tower) {
 }
 
 function createTower(col, row) {
+    const cost = getTowerCost(selectedTowerType);
     return {
         col,
         row,
         type: selectedTowerType,
         level: 1,
-        shotCooldown: 0
+        shotCooldown: 0,
+        totalInvested: cost
     };
 }
 
@@ -526,8 +540,21 @@ function upgradeTower(tower) {
     if (cost === null || coins < cost) return false;
     coins -= cost;
     tower.level += 1;
+    tower.totalInvested = (tower.totalInvested || getTowerCost(tower.type)) + cost;
     playBeep(520, 0.12, 'triangle', 0.25);
     return true;
+}
+
+function sellTower(col, row) {
+    const idx = towers.findIndex(t => t.col === col && t.row === row);
+    if (idx === -1) return;
+    const tower = towers[idx];
+    const refund = Math.floor((tower.totalInvested || getTowerCost(tower.type)) * 0.6);
+    coins += refund;
+    towers.splice(idx, 1);
+    addEffect((col + 0.5) * TILE_SIZE, (row + 0.5) * TILE_SIZE, 14, 'rgba(255, 215, 0, 0.65)', 0.28);
+    playBeep(260, 0.12, 'triangle', 0.2);
+    updateDisplays(performance.now());
 }
 
 function createSlugForWave(wave) {
@@ -599,6 +626,7 @@ function damageSlug(slug, rawDamage) {
     slug.hp -= dealt;
     if (slug.hp <= 0) {
         slug.alive = false;
+        kills += 1;
         coins += slug.reward;
         playCoin();
         addEffect(slug.x, slug.y, 12, 'rgba(255, 235, 59, 0.7)', 0.18);
@@ -744,7 +772,7 @@ function updateAbilityButtons(now) {
     }
 }
 
-function updateDisplays() {
+function updateDisplays(now) {
     const health = Math.max(0, MAX_LEAKS - leaks);
     const config = waveConfigs[Math.max(0, currentWave - 1)] || {type:'normal'};
     const waveType = config.type.charAt(0).toUpperCase() + config.type.slice(1);
@@ -754,8 +782,14 @@ function updateDisplays() {
         hudCache.coins === coins &&
         hudCache.leaks === leaks &&
         hudCache.health === health &&
-        hudCache.waveType === waveType
+        hudCache.waveType === waveType &&
+        hudCache.kills === kills
     ) {
+        // Still update countdown even when nothing else changed
+        if (!waveInProgress && currentWave < MAX_WAVES && now !== undefined) {
+            const secsLeft = Math.ceil((waveClearAt - now) / 1000);
+            nextWaveDisplay.textContent = secsLeft > 0 ? `Next wave in ${secsLeft}s` : '';
+        }
         return;
     }
 
@@ -764,13 +798,22 @@ function updateDisplays() {
     hudCache.leaks = leaks;
     hudCache.health = health;
     hudCache.waveType = waveType;
+    hudCache.kills = kills;
 
     waveDisplay.textContent = currentWave;
     maxWaveDisplay.textContent = MAX_WAVES;
     coinDisplay.textContent = coins;
     leakDisplay.textContent = leaks;
     healthDisplay.textContent = health;
+    killDisplay.textContent = kills;
     waveTypeDisplay.textContent = waveType;
+
+    if (!waveInProgress && currentWave < MAX_WAVES && now !== undefined) {
+        const secsLeft = Math.ceil((waveClearAt - now) / 1000);
+        nextWaveDisplay.textContent = secsLeft > 0 ? `Next wave in ${secsLeft}s` : '';
+    } else {
+        nextWaveDisplay.textContent = '';
+    }
 }
 
 function startNextWave(now) {
@@ -779,7 +822,7 @@ function startNextWave(now) {
     waveInProgress = true;
     waveSpawnCount = 0;
     lastSpawnTime = now;
-    updateDisplays();
+    updateDisplays(now);
 }
 
 function cleanDead() {
@@ -792,10 +835,12 @@ function endGame(isWin) {
     gameRunning = false;
     if (isWin) {
         playWin();
+        document.getElementById('winKills').textContent = `Slugs defeated: ${kills}`;
         winOverlay.style.display = 'flex';
         gameOverOverlay.style.display = 'none';
     } else {
         playLose();
+        document.getElementById('gameOverKills').textContent = `Slugs defeated: ${kills} — reached wave ${currentWave}`;
         gameOverOverlay.style.display = 'flex';
         winOverlay.style.display = 'none';
     }
@@ -808,22 +853,27 @@ function resetGameState() {
     effects = [];
     coins = 40;
     leaks = 0;
+    kills = 0;
     currentWave = 0;
     waveInProgress = false;
     waveSpawnCount = 0;
     waveClearAt = 0;
     gameRunning = true;
     gameEnded = false;
+    gameSpeed = 1;
     saltReady = true;
     fireReady = true;
     saltButton.classList.remove('cooldown');
     fireButton.classList.remove('cooldown');
     saltButton.textContent = 'Salt storm (S)';
     fireButton.textContent = 'Fire storm (F)';
-    hudCache = {wave: null, coins: null, leaks: null, health: null, waveType: null};
+    speedButton.textContent = '2× Speed';
+    speedButton.classList.remove('selected');
+    hudCache = {wave: null, coins: null, leaks: null, health: null, waveType: null, kills: null};
+    nextWaveDisplay.textContent = '';
     lastFrameTime = performance.now();
     selectTowerType('standard');
-    updateDisplays();
+    updateDisplays(performance.now());
 }
 
 function startGame() {
@@ -851,7 +901,7 @@ function handlePointerDown(ev) {
     const existing = findTowerAt(tile.col, tile.row);
     if (existing) {
         upgradeTower(existing);
-        updateDisplays();
+        updateDisplays(performance.now());
         return;
     }
 
@@ -863,7 +913,7 @@ function handlePointerDown(ev) {
     towers.push(createTower(tile.col, tile.row));
     addEffect((tile.col + 0.5) * TILE_SIZE, (tile.row + 0.5) * TILE_SIZE, 11, 'rgba(102, 187, 106, 0.65)', 0.25);
     playBeep(360, 0.1, 'square', 0.25);
-    updateDisplays();
+    updateDisplays(performance.now());
 }
 
 function updateSlugs(dt, now) {
@@ -1027,7 +1077,7 @@ function update(dt) {
     updateEffects(dt);
     cleanDead();
 
-    updateDisplays();
+    updateDisplays(now);
 }
 
 function drawBoard() {
@@ -1153,18 +1203,38 @@ function gameLoop(now) {
         if (now - lastFrameTime > 250) {
             lastFrameTime = now;
         }
-        const dt = Math.min((now - lastFrameTime) / 1000, MAX_DELTA_TIME);
+        const rawDt = Math.min((now - lastFrameTime) / 1000, MAX_DELTA_TIME);
         lastFrameTime = now;
-        update(dt);
+        // Apply speed multiplier in sub-steps to keep physics stable
+        const steps = gameSpeed > 1 ? 2 : 1;
+        const dt = rawDt * gameSpeed / steps;
+        for (let i = 0; i < steps; i++) {
+            update(dt);
+        }
         draw();
     }
     requestAnimationFrame(gameLoop);
 }
 
+function toggleSpeed() {
+    gameSpeed = gameSpeed === 1 ? 2 : 1;
+    speedButton.textContent = gameSpeed === 2 ? '1× Speed' : '2× Speed';
+    speedButton.classList.toggle('selected', gameSpeed === 2);
+}
+
 canvas.addEventListener('mousedown', handlePointerDown);
 canvas.addEventListener('touchstart', handlePointerDown, {passive:false});
+canvas.addEventListener('contextmenu', (ev) => {
+    ev.preventDefault();
+    if (!gameRunning || gameEnded) return;
+    const tile = tileFromPixel(ev.clientX, ev.clientY);
+    if (tile.col < 0 || tile.col >= GRID_COLS || tile.row < 0 || tile.row >= GRID_ROWS) return;
+    const existing = findTowerAt(tile.col, tile.row);
+    if (existing) sellTower(tile.col, tile.row);
+});
 saltButton.addEventListener('click', triggerSaltStorm);
 fireButton.addEventListener('click', triggerFireStorm);
+speedButton.addEventListener('click', toggleSpeed);
 
 for (const [type, button] of Object.entries(towerButtons)) {
     button.addEventListener('click', () => selectTowerType(type));
@@ -1173,13 +1243,14 @@ for (const [type, button] of Object.entries(towerButtons)) {
 document.addEventListener('keydown', (ev) => {
     if (ev.key === 's' || ev.key === 'S') triggerSaltStorm();
     if (ev.key === 'f' || ev.key === 'F') triggerFireStorm();
+    if (ev.key === 'x' || ev.key === 'X') toggleSpeed();
 });
 
 startButton.addEventListener('click', startGame);
 retryButton.addEventListener('click', startGame);
 winRetryButton.addEventListener('click', startGame);
 
-updateDisplays();
+updateDisplays(performance.now());
 </script>
 </body>
 </html>
