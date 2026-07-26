@@ -116,7 +116,6 @@
         text-align: center;
         padding: 16px;
         box-sizing: border-box;
-        overflow-y: auto;
     }
 
     .overlay h1 {
@@ -139,40 +138,15 @@
         cursor: pointer;
     }
 
-    .overlay button:hover {
-        background: #3a8620;
-    }
-
     .small {
         font-size: 12px;
         opacity: 0.85;
     }
-
-    .back-button {
-        position: absolute;
-        top: 10px;
-        left: 10px;
-        padding: 8px 12px;
-        background: #ff6b35;
-        color: white;
-        border: none;
-        border-radius: 4px;
-        cursor: pointer;
-        font-size: 14px;
-        font-weight: bold;
-        z-index: 200;
-    }
-
-    .back-button:hover {
-        background: #ff5520;
-    }
 </style>
 </head>
 <body>
-<button class="back-button" onclick="window.location.href='index.html';">← Back</button>
-
 <div id="hud">
-    <span>Wave: <span id="waveDisplay">0</span>/<span id="maxWaveDisplay">30</span></span>
+    <span>Wave: <span id="waveDisplay">0</span>/<span id="maxWaveDisplay">14</span></span>
     <span>Type: <span id="waveTypeDisplay">Normal</span></span>
     <span>Coins: <span id="coinDisplay">0</span></span>
     <span>Leaks: <span id="leakDisplay">0</span>/10</span>
@@ -191,7 +165,7 @@
 
     <!-- Start screen -->
     <div id="startOverlay" class="overlay">
-        <h1>🍄 Gnome Garden Defense 🎮</h1>
+        <h1>Gnome Garden Defense</h1>
         <p>Garden gnomes defend your cabbage from hungry slugs.</p>
         <p><strong>Controls</strong></p>
         <p class="small">
@@ -230,8 +204,8 @@
 
     <!-- Win screen -->
     <div id="winOverlay" class="overlay" style="display:none;">
-        <h1>🎉 You Saved the Patch!</h1>
-        <p>The gnomes held the line through all 30 waves.</p>
+        <h1>You Saved the Patch!</h1>
+        <p>The gnomes held the line through all 10 waves.</p>
         <p class="small">Hard mode beaten—nicely defended all 30 waves!</p>
         <button id="winRetryButton">Play again</button>
     </div>
@@ -257,6 +231,7 @@ function ensureAudio() {
     }
 }
 
+// Simple synthesized beep for events
 function playBeep(freq, duration, type = 'square', volume = 0.2) {
     ensureAudio();
     const osc = audioCtx.createOscillator();
@@ -270,18 +245,22 @@ function playBeep(freq, duration, type = 'square', volume = 0.2) {
     osc.stop(audioCtx.currentTime + duration);
 }
 
+// Slightly different sound for hits
 function playHit() {
     playBeep(220, 0.08, 'sawtooth', 0.25);
 }
 
+// Coin sound
 function playCoin() {
     playBeep(880, 0.12, 'triangle', 0.25);
 }
 
+// Lose sound
 function playLose() {
     playBeep(120, 0.6, 'square', 0.3);
 }
 
+// Win sound
 function playWin() {
     playBeep(660, 0.4, 'triangle', 0.3);
 }
@@ -296,6 +275,7 @@ const TILE_SIZE = 64;
 const GRID_COLS = 10;
 const GRID_ROWS = 7;
 
+// Path waypoints (tile coordinates) for a longer curved wave
 const pathTiles = [
     {x:0,y:3},{x:1,y:3},{x:2,y:3},{x:3,y:3},
     {x:3,y:2},{x:3,y:1},{x:4,y:1},{x:5,y:1},
@@ -308,8 +288,9 @@ const pathTiles = [
 let towers = [];
 let slugs = [];
 let projectiles = [];
+let splashEffects = [];
 
-let coins = 40;
+let coins = 40;          // limited starting coins for HARD
 let leaks = 0;
 let currentWave = 0;
 let maxWaves = 30;
@@ -349,23 +330,55 @@ const waveConfigs = [
     {type:'flying', count:10, delay:760},
     {type:'fast', count:24, delay:400},
     {type:'shielded', count:22, delay:450},
-    {type:'boss', count:4, delay:1300}
+    {type:'boss', count:4, delay:1300},
+    {type:'boss', count:2, delay:1500},
+    {type:'boss', count:1, delay:1800},
+    {type:'normal', count:20, delay:380},
+    {type:'fast', count:18, delay:380},
+    {type:'shielded', count:20, delay:440},
+    {type:'flying', count:12, delay:720},
+    {type:'boss', count:4, delay:1350},
+    {type:'fast', count:22, delay:360},
+    {type:'shielded', count:24, delay:420},
+    {type:'flying', count:14, delay:700},
+    {type:'boss', count:4, delay:1320},
+    {type:'boss', count:2, delay:1700}
 ];
 
-let saltReady = true;
-let saltCooldown = 20000;
-let lastSaltTime = 0;
-let fireReady = true;
-let fireCooldown = 30000;
-let lastFireTime = 0;
 
+// Salt storm special
+let saltReady = true;
+let saltCooldown = 20000; // 20 seconds
+let lastSaltTime = 0;
+let saltEffect = {
+    active: false,
+    start: 0,
+    duration: 700,
+    particles: []
+};
+
+let fireReady = true;
+let fireCooldown = 30000; // 30 seconds
+let lastFireTime = 0;
+let fireEffect = {
+    active: false,
+    start: 0,
+    duration: 1100,
+    particles: []
+};
+
+// Time tracking
 let lastFrameTime = performance.now();
 
+/**********************
+ * UI elements        *
+ **********************/
 const waveDisplay = document.getElementById('waveDisplay');
 const coinDisplay = document.getElementById('coinDisplay');
 const leakDisplay = document.getElementById('leakDisplay');
 const saltButton = document.getElementById('saltButton');
 const fireButton = document.getElementById('fireButton');
+
 const startOverlay = document.getElementById('startOverlay');
 const gameOverOverlay = document.getElementById('gameOverOverlay');
 const winOverlay = document.getElementById('winOverlay');
@@ -382,6 +395,9 @@ const towerTypeMachine = document.getElementById('towerTypeMachine');
 const waveTypeDisplay = document.getElementById('waveTypeDisplay');
 const maxWaveDisplay = document.getElementById('maxWaveDisplay');
 
+/**********************
+ * Utility helpers    *
+ **********************/
 function tileFromPixel(px, py) {
     const rect = canvas.getBoundingClientRect();
     const x = px - rect.left;
@@ -399,6 +415,9 @@ function findTowerAt(col, row) {
     return towers.find(t => t.col === col && t.row === row);
 }
 
+/**********************
+ * Tower definition   *
+ **********************/
 function getTowerCost(type) {
     if (type === 'standard') return 15;
     if (type === 'splash') return 22;
@@ -412,7 +431,13 @@ function getTowerCost(type) {
 
 function createTower(col, row) {
     const type = selectedTowerType;
-    const base = {col, row, level: 1, type, lastShot: 0};
+    const base = {
+        col,
+        row,
+        level: 1,
+        type,
+        lastShot: 0
+    };
     if (type === 'splash') {
         return {...base, range: 2.0, fireRate: 1.0, damage: 10, splashRadius: 1.5};
     }
@@ -437,19 +462,104 @@ function createTower(col, row) {
 function upgradeTower(tower) {
     if (tower.type === 'splash') {
         if (tower.level === 1) {
-            tower.level = 2; tower.range = 2.4; tower.damage = 14; tower.fireRate = 0.9; tower.splashRadius = 1.8;
+            tower.level = 2;
+            tower.range = 2.4;
+            tower.damage = 14;
+            tower.fireRate = 0.9;
+            tower.splashRadius = 1.8;
         } else if (tower.level === 2) {
-            tower.level = 3; tower.range = 2.8; tower.damage = 18; tower.fireRate = 0.8; tower.splashRadius = 2.1;
+            tower.level = 3;
+            tower.range = 2.8;
+            tower.damage = 18;
+            tower.fireRate = 0.8;
+            tower.splashRadius = 2.1;
         }
-    } else if (tower.type === 'standard') {
+    } else if (tower.type === 'frost') {
         if (tower.level === 1) {
-            tower.level = 2; tower.range = 2.8; tower.damage = 22; tower.fireRate = 0.55;
+            tower.level = 2;
+            tower.range = 2.6;
+            tower.damage = 10;
+            tower.fireRate = 1.1;
+            tower.slowAmount = 0.55;
         } else if (tower.level === 2) {
-            tower.level = 3; tower.range = 3.3; tower.damage = 32; tower.fireRate = 0.45;
+            tower.level = 3;
+            tower.range = 3.0;
+            tower.damage = 12;
+            tower.fireRate = 1.0;
+            tower.slowAmount = 0.6;
+        }
+    } else if (tower.type === 'fire') {
+        if (tower.level === 1) {
+            tower.level = 2;
+            tower.range = 2.4;
+            tower.damage = 15;
+            tower.fireRate = 0.75;
+            tower.burnDamage = 5;
+            tower.burnDuration = 1300;
+            tower.burnRate = 5 / 1.3;
+        } else if (tower.level === 2) {
+            tower.level = 3;
+            tower.range = 2.8;
+            tower.damage = 20;
+            tower.fireRate = 0.65;
+            tower.burnDamage = 7;
+            tower.burnDuration = 1500;
+            tower.burnRate = 7 / 1.5;
+        }
+    } else if (tower.type === 'air') {
+        if (tower.level === 1) {
+            tower.level = 2;
+            tower.range = 2.8;
+            tower.damage = 18;
+            tower.fireRate = 0.9;
+        } else if (tower.level === 2) {
+            tower.level = 3;
+            tower.range = 3.2;
+            tower.damage = 24;
+            tower.fireRate = 0.8;
+        }
+    } else if (tower.type === 'sniper') {
+        if (tower.level === 1) {
+            tower.level = 2;
+            tower.range = 3.8;
+            tower.damage = 52;
+            tower.fireRate = 1.2;
+        } else if (tower.level === 2) {
+            tower.level = 3;
+            tower.range = 4.2;
+            tower.damage = 64;
+            tower.fireRate = 1.0;
+        }
+    } else if (tower.type === 'machine') {
+        if (tower.level === 1) {
+            tower.level = 2;
+            tower.range = 2.2;
+            tower.damage = 8;
+            tower.fireRate = 0.2;
+        } else if (tower.level === 2) {
+            tower.level = 3;
+            tower.range = 2.4;
+            tower.damage = 9;
+            tower.fireRate = 0.18;
+        }
+    } else {
+        if (tower.level === 1) {
+            tower.level = 2;
+            tower.range = 2.8;
+            tower.damage = 22;
+            tower.fireRate = 0.55;
+        } else if (tower.level === 2) {
+            tower.level = 3;
+            tower.range = 3.3;
+            tower.damage = 32;
+            tower.fireRate = 0.45;
         }
     }
 }
 
+/**********************
+ * Slug definition    *
+ **********************/
 function createSlugForWave(wave) {
     const config = waveConfigs[wave - 1] || {type:'normal', count:10, delay:600};
     let baseHp = 35 + wave * 14;
@@ -488,21 +598,77 @@ function createSlugForWave(wave) {
         speed: speed,
         type: config.type,
         color: color,
+        isBoss: config.type === 'boss',
         alive: true,
         slowed: 1,
-        flying: config.type === 'flying'
+        frozenUntil: 0,
+        burnUntil: 0,
+        burnRate: 0,
+        flying: config.type === 'flying',
+        flyOffset: config.type === 'flying' ? 8 : 0
     };
 }
 
+/**********************
+ * Projectiles        *
+ **********************/
+function createProjectile(fromTower, targetSlug) {
+    return {
+        x: (fromTower.col + 0.5) * TILE_SIZE,
+        y: (fromTower.row + 0.5) * TILE_SIZE,
+        target: targetSlug,
+        speed: 260, // pixels per second
+        damage: fromTower.damage,
+        fromTower
+    };
+}
+
+/**********************
+ * Waves              *
+ **********************/
+function startNextWave() {
+    currentWave++;
+    waveDisplay.textContent = currentWave;
+    waveInProgress = true;
+    nextSlugIndex = 0;
+    lastSpawnTime = performance.now();
+}
+
+// Number of slugs per wave (HARD)
+function slugsInWave(wave) {
+    const config = waveConfigs[wave - 1];
+    return config ? config.count : 5 + wave * 2;
+}
+
+/**********************
+ * Salt storm         *
+ **********************/
 function triggerSaltStorm() {
     if (!saltReady || !gameRunning) return;
     saltReady = false;
     lastSaltTime = performance.now();
+    saltEffect.active = true;
+    saltEffect.start = lastSaltTime;
+    saltEffect.particles = [];
     saltButton.classList.add('cooldown');
 
+    for (let i = 0; i < 80; i++) {
+        const angle = Math.random() * Math.PI * 2;
+        saltEffect.particles.push({
+            x: Math.random() * canvas.width,
+            y: Math.random() * canvas.height,
+            vx: Math.cos(angle) * (80 + Math.random() * 120),
+            vy: Math.sin(angle) * (80 + Math.random() * 120),
+            alpha: 1,
+            radius: 1 + Math.random() * 2
+        });
+    }
+
+    // Damage all slugs on screen and apply slow
     slugs.forEach(s => {
         if (s.alive) {
             s.hp -= 35;
+            s.slowed = Math.min(1, (s.slowed !== undefined ? s.slowed : 1) - 0.45);
             playHit();
             if (s.hp <= 0) {
                 s.alive = false;
@@ -514,6 +680,9 @@ function triggerSaltStorm() {
     });
 }
 
+/**********************
+ * Input handling     *
+ **********************/
 function handlePointerDown(ev) {
     ev.preventDefault();
     const isTouch = ev.type === 'touchstart';
@@ -521,11 +690,14 @@ function handlePointerDown(ev) {
     const tile = tileFromPixel(point.clientX, point.clientY);
 
     if (!gameRunning) return;
+
+    // Ignore clicks outside grid
     if (tile.col < 0 || tile.col >= GRID_COLS || tile.row < 0 || tile.row >= GRID_ROWS) return;
 
     const existing = findTowerAt(tile.col, tile.row);
 
     if (existing) {
+        // Upgrade tower if possible
         if (existing.level < 3 && coins >= 25) {
             coins -= 25;
             coinDisplay.textContent = coins;
@@ -533,6 +705,7 @@ function handlePointerDown(ev) {
             playBeep(520, 0.12, 'triangle', 0.25);
         }
     } else {
+        // Place tower only on non-path tiles
         const cost = getTowerCost(selectedTowerType);
         if (!isPathTile(tile.col, tile.row) && coins >= cost) {
             coins -= cost;
@@ -556,33 +729,72 @@ towerTypeSniper.addEventListener('click', () => selectTowerType('sniper'));
 towerTypeMachine.addEventListener('click', () => selectTowerType('machine'));
 
 document.addEventListener('keydown', (ev) => {
-    if (ev.key === 's' || ev.key === 'S') triggerSaltStorm();
-    if (ev.key === 'f' || ev.key === 'F') triggerFireStorm();
+    if (ev.key === 's' || ev.key === 'S') {
+        triggerSaltStorm();
+    }
+    if (ev.key === 'f' || ev.key === 'F') {
+        triggerFireStorm();
+    }
 });
 
 function selectTowerType(type) {
     selectedTowerType = type;
     towerTypeStandard.classList.toggle('selected', type === 'standard');
     towerTypeSplash.classList.toggle('selected', type === 'splash');
+    towerTypeFrost.classList.toggle('selected', type === 'frost');
+    towerTypeAir.classList.toggle('selected', type === 'air');
+    towerTypeFire.classList.toggle('selected', type === 'fire');
+    towerTypeSniper.classList.toggle('selected', type === 'sniper');
+    towerTypeMachine.classList.toggle('selected', type === 'machine');
 }
 
 function updateDisplays() {
     waveDisplay.textContent = currentWave;
+    maxWaveDisplay.textContent = maxWaves;
     coinDisplay.textContent = coins;
     leakDisplay.textContent = leaks;
     const config = waveConfigs[currentWave - 1] || {type:'normal'};
-    waveTypeDisplay.textContent = config.type.charAt(0).toUpperCase() + config.type.slice(1);
+    waveTypeDisplay.textContent = config.type === 'boss' ? 'Boss' : config.type.charAt(0).toUpperCase() + config.type.slice(1);
+    if (saltReady) {
+        saltButton.classList.remove('cooldown');
+        saltButton.textContent = 'Salt storm (S)';
+    } else {
+        saltButton.textContent = 'Salt storm (S)';
+    }
+    if (fireReady) {
+        fireButton.classList.remove('cooldown');
+        fireButton.textContent = 'Fire storm (F)';
+    } else {
+        fireButton.textContent = 'Fire storm (F)';
+    }
 }
 
 function triggerFireStorm() {
     if (!fireReady || !gameRunning) return;
     fireReady = false;
     lastFireTime = performance.now();
+    fireEffect.active = true;
+    fireEffect.start = lastFireTime;
+    fireEffect.particles = [];
     fireButton.classList.add('cooldown');
+
+    for (let i = 0; i < 120; i++) {
+        const angle = Math.random() * Math.PI * 2;
+        fireEffect.particles.push({
+            x: Math.random() * canvas.width,
+            y: Math.random() * canvas.height,
+            vx: Math.cos(angle) * (120 + Math.random() * 140),
+            vy: Math.sin(angle) * (120 + Math.random() * 140),
+            alpha: 1,
+            radius: 2 + Math.random() * 3
+        });
+    }
 
     slugs.forEach(s => {
         if (s.alive) {
             s.hp -= 55;
+            s.burnUntil = Math.max(s.burnUntil || 0, performance.now() + 1600);
+            s.burnRate = Math.max(s.burnRate || 0, 16 / 1.6);
             playHit();
             if (s.hp <= 0) {
                 s.alive = false;
@@ -594,16 +806,37 @@ function triggerFireStorm() {
     });
 }
 
-function startNextWave() {
-    currentWave++;
-    waveDisplay.textContent = currentWave;
-    waveInProgress = true;
+function updateFireCooldown(now) {
+    if (!fireReady && now - lastFireTime >= fireCooldown) {
+        fireReady = true;
+        fireButton.classList.remove('cooldown');
+    }
+}
+
+function resetGame() {
+    towers = [];
+    slugs = [];
+    projectiles = [];
+    coins = 40;
+    leaks = 0;
+    currentWave = 0;
+    gameRunning = false;
+    waveInProgress = false;
     nextSlugIndex = 0;
-    lastSpawnTime = performance.now();
+    saltReady = true;
+    lastSaltTime = 0;
+    lastSpawnTime = 0;
+    lastFrameTime = performance.now();
+    startOverlay.style.display = 'flex';
+    gameOverOverlay.style.display = 'none';
+    winOverlay.style.display = 'none';
+    updateDisplays();
 }
 
 function startGame() {
     startOverlay.style.display = 'none';
+    gameOverOverlay.style.display = 'none';
+    winOverlay.style.display = 'none';
     coins = 40;
     leaks = 0;
     currentWave = 0;
@@ -614,6 +847,7 @@ function startGame() {
     waveInProgress = false;
     nextSlugIndex = 0;
     saltReady = true;
+    lastSaltTime = 0;
     lastSpawnTime = 0;
     lastFrameTime = performance.now();
     updateDisplays();
@@ -624,8 +858,8 @@ function startGame() {
 function showGameOver() {
     gameRunning = false;
     gameOverOverlay.style.display = 'flex';
-    startOverlay.style.display = 'none';
     winOverlay.style.display = 'none';
+    startOverlay.style.display = 'none';
     playLose();
 }
 
@@ -637,13 +871,21 @@ function showWin() {
     playWin();
 }
 
+function updateSaltCooldown(now) {
+    if (!saltReady && now - lastSaltTime >= saltCooldown) {
+        saltReady = true;
+        saltButton.classList.remove('cooldown');
+    }
+}
+
 function update(dt) {
     if (!gameRunning) return;
     const now = performance.now();
 
     if (waveInProgress) {
         const config = waveConfigs[currentWave - 1] || {count:10, delay:600};
-        if (nextSlugIndex < config.count && now - lastSpawnTime >= config.delay) {
+        const total = config.count;
+        if (nextSlugIndex < total && now - lastSpawnTime >= config.delay) {
             slugs.push(createSlugForWave(currentWave));
             nextSlugIndex++;
             lastSpawnTime = now;
@@ -659,20 +901,99 @@ function update(dt) {
         const dx = targetX - slug.x;
         const dy = targetY - slug.y;
         const dist = Math.hypot(dx, dy);
-        
         if (dist < 1) {
             slug.pathIndex = targetIndex;
             if (slug.pathIndex >= pathTiles.length - 1) {
                 slug.alive = false;
                 leaks += 1;
                 updateDisplays();
-                if (leaks >= 10) showGameOver();
                 return;
             }
         } else {
+            const isFrozen = slug.frozenUntil > now;
+            if (slug.burnUntil > now) {
+                slug.hp -= slug.burnRate * dt / 1000;
+            }
             const move = (slug.speed * dt) / 1000;
-            slug.x += (dx / dist) * move;
-            slug.y += (dy / dist) * move;
+            const slowFactor = isFrozen ? 0.22 : (slug.slowed !== undefined ? Math.max(0.3, slug.slowed) : 1);
+            slug.x += (dx / dist) * Math.min(move * slowFactor, dist);
+            slug.y += (dy / dist) * Math.min(move * slowFactor, dist);
+            if (!isFrozen) {
+                slug.slowed = Math.min(1, slug.slowed + dt * 0.2);
+            }
+            slug.isFrozen = isFrozen;
+        }
+    });
+
+    towers.forEach(tower => {
+        tower.lastShot = tower.lastShot || 0;
+        if (now - tower.lastShot < tower.fireRate * 1000) return;
+        const towerX = (tower.col + 0.5) * TILE_SIZE;
+        const towerY = (tower.row + 0.5) * TILE_SIZE;
+        const targetSlug = slugs
+            .filter(s => s.alive && ((tower.type === 'air') ? s.flying : (tower.type === 'sniper') ? true : !s.flying))
+            .find(s => {
+                const dx = s.x - towerX;
+                const dy = s.y - towerY;
+                return Math.hypot(dx, dy) <= tower.range * TILE_SIZE;
+            });
+        if (targetSlug) {
+            projectiles.push(createProjectile(tower, targetSlug));
+            if (tower.type === 'frost') {
+                targetSlug.slowed = Math.max(0.22, Math.min(1, targetSlug.slowed - tower.slowAmount));
+            }
+            tower.lastShot = now;
+        }
+    });
+
+    projectiles.forEach((proj, index) => {
+        if (!proj.target || !proj.target.alive) {
+            projectiles.splice(index, 1);
+            return;
+        }
+        const dx = proj.target.x - proj.x;
+        const dy = proj.target.y - proj.y;
+        const dist = Math.hypot(dx, dy);
+        const step = (proj.speed * dt) / 1000;
+        if (dist <= step) {
+            const target = proj.target;
+            target.hp -= proj.damage;
+            if (proj.fromTower.type === 'splash') {
+                slugs.forEach(other => {
+                    if (!other.alive || other === target) return;
+                    const dx2 = other.x - target.x;
+                    const dy2 = other.y - target.y;
+                    if (Math.hypot(dx2, dy2) <= proj.fromTower.splashRadius * TILE_SIZE) {
+                        other.hp -= Math.round(proj.damage * 0.6);
+                    }
+                });
+                splashEffects.push({
+                    x: target.x,
+                    y: target.y,
+                    radius: proj.fromTower.splashRadius * TILE_SIZE,
+                    alpha: 1,
+                    maxRadius: proj.fromTower.splashRadius * TILE_SIZE + 22
+                });
+            }
+            if (proj.fromTower.type === 'frost') {
+                target.frozenUntil = Math.max(target.frozenUntil || 0, now + 1200);
+                target.slowed = 0.22;
+            }
+            if (proj.fromTower.type === 'fire') {
+                target.burnUntil = Math.max(target.burnUntil || 0, now + proj.fromTower.burnDuration);
+                target.burnRate = proj.fromTower.burnRate || (proj.fromTower.burnDamage / (proj.fromTower.burnDuration / 1000));
+            }
+            if (target.hp <= 0) {
+                target.alive = false;
+                coins += 4;
+                playCoin();
+            } else {
+                playHit();
+            }
+            projectiles.splice(index, 1);
+        } else {
+            proj.x += (dx / dist) * step;
+            proj.y += (dy / dist) * step;
         }
     });
 
@@ -680,62 +1001,464 @@ function update(dt) {
         showGameOver();
     }
 
-    if (slugs.filter(s => s.alive).length === 0 && currentWave >= maxWaves && !waveInProgress) {
-        showWin();
+    if (saltEffect.active) {
+        const elapsed = now - saltEffect.start;
+        saltEffect.particles.forEach(p => {
+            p.x += p.vx * dt / 1000;
+            p.y += p.vy * dt / 1000;
+            p.alpha = Math.max(0, 1 - elapsed / saltEffect.duration - (Math.abs(p.x - canvas.width/2) + Math.abs(p.y - canvas.height/2)) / 1200);
+        });
+        if (elapsed >= saltEffect.duration) {
+            saltEffect.active = false;
+        }
     }
 
-    if (!saltReady && now - lastSaltTime >= saltCooldown) {
-        saltReady = true;
-        saltButton.classList.remove('cooldown');
+    if (fireEffect.active) {
+        const elapsed = now - fireEffect.start;
+        fireEffect.particles.forEach(p => {
+            p.x += p.vx * dt / 1000;
+            p.y += p.vy * dt / 1000;
+            p.alpha = Math.max(0, 1 - elapsed / fireEffect.duration - (Math.abs(p.x - canvas.width/2) + Math.abs(p.y - canvas.height/2)) / 1400);
+        });
+        if (elapsed >= fireEffect.duration) {
+            fireEffect.active = false;
+        }
     }
 
-    if (!fireReady && now - lastFireTime >= fireCooldown) {
-        fireReady = true;
-        fireButton.classList.remove('cooldown');
+    splashEffects.forEach((effect, index) => {
+        effect.radius += dt * 0.04;
+        effect.alpha -= dt / 500;
+        if (effect.alpha <= 0) {
+            splashEffects.splice(index, 1);
+        }
+    });
+
+    if (waveInProgress) {
+        const total = slugsInWave(currentWave);
+        const activeSlugs = slugs.some(s => s.alive);
+        if (nextSlugIndex >= total && !activeSlugs) {
+            waveInProgress = false;
+            if (currentWave >= maxWaves) {
+                showWin();
+            } else {
+                setTimeout(() => {
+                    if (gameRunning) startNextWave();
+                }, 900);
+            }
+        }
     }
+
+    updateSaltCooldown(now);
+    updateFireCooldown(now);
+    updateDisplays();
 }
 
 function draw() {
-    ctx.fillStyle = '#8B7355';
+    const now = performance.now();
+    ctx.clearRect(0, 0, canvas.width, canvas.height);
+
+    // draw soil and grass tiles
+    const grassGradient = ctx.createLinearGradient(0, 0, 0, canvas.height);
+    grassGradient.addColorStop(0, '#5F8A3D');
+    grassGradient.addColorStop(1, '#42672A');
+    ctx.fillStyle = grassGradient;
     ctx.fillRect(0, 0, canvas.width, canvas.height);
 
+    for (let row = 0; row < GRID_ROWS; row++) {
+        for (let col = 0; col < GRID_COLS; col++) {
+            if (isPathTile(col, row)) {
+                ctx.fillStyle = '#9C7A56';
+            } else {
+                ctx.fillStyle = ((row + col) % 2 === 0) ? '#6E9048' : '#739F50';
+            }
+            ctx.fillRect(col * TILE_SIZE, row * TILE_SIZE, TILE_SIZE, TILE_SIZE);
+            ctx.strokeStyle = 'rgba(74,90,46,0.5)';
+            ctx.strokeRect(col * TILE_SIZE, row * TILE_SIZE, TILE_SIZE, TILE_SIZE);
+        }
+    }
+
+    // decorative stones and flowers beside the path
+    const gardenSpots = [
+        {x:0.9, y:1.4}, {x:2.2, y:4.6}, {x:4.1, y:0.9}, {x:7.8, y:2.2}, {x:8.6, y:5.4}
+    ];
+    gardenSpots.forEach(spot => {
+        const gx = spot.x * TILE_SIZE;
+        const gy = spot.y * TILE_SIZE;
+        ctx.fillStyle = '#58483E';
+        ctx.beginPath();
+        ctx.ellipse(gx, gy, 4, 6, 0, 0, Math.PI * 2);
+        ctx.fill();
+        ctx.fillStyle = '#7AC17E';
+        ctx.beginPath();
+        ctx.arc(gx + 6, gy - 3, 3, 0, Math.PI * 2);
+        ctx.arc(gx - 5, gy + 4, 2.8, 0, Math.PI * 2);
+        ctx.fill();
+        ctx.fillStyle = '#F6DF3D';
+        ctx.beginPath();
+        ctx.arc(gx - 6, gy - 4, 2, 0, Math.PI * 2);
+        ctx.arc(gx + 4, gy + 5, 2.2, 0, Math.PI * 2);
+        ctx.fill();
+    });
+
+
+    // draw path texture
+    ctx.beginPath();
+    pathTiles.forEach((tile, index) => {
+        const x = tile.x * TILE_SIZE + TILE_SIZE/2;
+        const y = tile.y * TILE_SIZE + TILE_SIZE/2;
+        if (index === 0) ctx.moveTo(x, y);
+        else ctx.lineTo(x, y);
+    });
+    ctx.lineWidth = 16;
+    ctx.strokeStyle = '#8E6D48';
+    ctx.stroke();
+
+    ctx.lineWidth = 6;
+    ctx.strokeStyle = '#C6A472';
+    ctx.beginPath();
+    pathTiles.forEach((tile, index) => {
+        const x = tile.x * TILE_SIZE + TILE_SIZE/2;
+        const y = tile.y * TILE_SIZE + TILE_SIZE/2;
+        if (index === 0) ctx.moveTo(x, y);
+        else ctx.lineTo(x, y);
+    });
+    ctx.stroke();
+
     pathTiles.forEach(tile => {
-        ctx.fillStyle = '#6B5344';
-        ctx.fillRect(tile.x * TILE_SIZE, tile.y * TILE_SIZE, TILE_SIZE, TILE_SIZE);
+        ctx.fillStyle = '#7A5F3F';
+        ctx.fillRect(tile.x * TILE_SIZE + 12, tile.y * TILE_SIZE + 12, TILE_SIZE - 24, TILE_SIZE - 24);
     });
 
+    // cabbage guard at end
+    const endTile = pathTiles[pathTiles.length - 1];
+    const cabbageX = endTile.x * TILE_SIZE + TILE_SIZE / 2;
+    const cabbageY = endTile.y * TILE_SIZE + TILE_SIZE / 2;
+    ctx.fillStyle = '#346228';
+    ctx.beginPath();
+    ctx.arc(cabbageX + 12, cabbageY, 20, 0, Math.PI * 2);
+    ctx.fill();
+    ctx.fillStyle = '#4BA033';
+    ctx.beginPath();
+    ctx.arc(cabbageX + 14, cabbageY - 4, 16, 0, Math.PI * 2);
+    ctx.fill();
+    ctx.fillStyle = '#7BC159';
+    ctx.beginPath();
+    ctx.moveTo(cabbageX + 4, cabbageY - 6);
+    ctx.quadraticCurveTo(cabbageX + 10, cabbageY - 20, cabbageX + 18, cabbageY - 6);
+    ctx.quadraticCurveTo(cabbageX + 10, cabbageY - 14, cabbageX + 4, cabbageY - 6);
+    ctx.fill();
+
+    // draw towers
     towers.forEach(tower => {
-        ctx.fillStyle = '#8B4513';
-        ctx.fillRect((tower.col + 0.25) * TILE_SIZE, (tower.row + 0.25) * TILE_SIZE, TILE_SIZE * 0.5, TILE_SIZE * 0.5);
+        const x = tower.col * TILE_SIZE + TILE_SIZE / 2;
+        const y = tower.row * TILE_SIZE + TILE_SIZE / 2;
+        const bodyHeight = 22;
+        const bodyWidth = 20;
+        const type = tower.type;
+
+        let bodyColor = '#A15F30';
+        let sleeveColor = '#8E4C20';
+        let hatColor = '#8C1E47';
+        let trimColor = '#631538';
+        let faceColor = '#F3D6B6';
+        let beardColor = '#F0E7D1';
+
+        if (type === 'splash') {
+            bodyColor = '#547B4E';
+            sleeveColor = '#3E5D35';
+            hatColor = '#B47624';
+            trimColor = '#7D531B';
+            beardColor = '#E8D4B2';
+        } else if (type === 'frost') {
+            bodyColor = '#5C8EA8';
+            sleeveColor = '#3D6B82';
+            hatColor = '#75B5D1';
+            trimColor = '#4A8AA8';
+            faceColor = '#E9F2F8';
+            beardColor = '#E6F2FB';
+        } else if (type === 'fire') {
+            bodyColor = '#B0411E';
+            sleeveColor = '#9A2E16';
+            hatColor = '#D96E3E';
+            trimColor = '#7D2B16';
+            faceColor = '#F6D0B2';
+            beardColor = '#F8E3D6';
+        } else if (type === 'air') {
+            bodyColor = '#5C7DB0';
+            sleeveColor = '#3A5F8E';
+            hatColor = '#8AB4F1';
+            trimColor = '#4F7CC6';
+            faceColor = '#F3D6B6';
+            beardColor = '#EDE8E3';
+        } else if (type === 'sniper') {
+            bodyColor = '#3D5C1C';
+            sleeveColor = '#2E4414';
+            hatColor = '#1F2F16';
+            trimColor = '#A6C475';
+            faceColor = '#EDD5B0';
+            beardColor = '#CBB194';
+        } else if (type === 'machine') {
+            bodyColor = '#6A5C41';
+            sleeveColor = '#473A2D';
+            hatColor = '#2F2A23';
+            trimColor = '#E0C28A';
+            faceColor = '#F3D6B6';
+            beardColor = '#D9C7A8';
+        }
+
+        // draw basic tower body and head
+        ctx.fillStyle = bodyColor;
+        ctx.fillRect(x - bodyWidth / 2, y - bodyHeight / 2, bodyWidth, bodyHeight);
+        ctx.fillStyle = sleeveColor;
+        ctx.fillRect(x - bodyWidth / 2, y - bodyHeight / 2 + 4, bodyWidth, 8);
+
+        ctx.fillStyle = faceColor;
+        ctx.beginPath();
+        ctx.arc(x, y - 8, 8, 0, Math.PI * 2);
+        ctx.fill();
+
+        ctx.fillStyle = beardColor;
+        ctx.beginPath();
+        ctx.moveTo(x - 6, y - 2);
+        ctx.quadraticCurveTo(x, y + 12, x + 6, y - 2);
+        ctx.lineTo(x + 6, y + 8);
+        ctx.quadraticCurveTo(x, y + 22, x - 6, y + 8);
+        ctx.closePath();
+        ctx.fill();
+
+        ctx.fillStyle = hatColor;
+        ctx.beginPath();
+        ctx.moveTo(x - 12, y - 18);
+        ctx.quadraticCurveTo(x, y - 38, x + 12, y - 18);
+        ctx.lineTo(x + 10, y - 20);
+        ctx.quadraticCurveTo(x, y - 34, x - 10, y - 20);
+        ctx.closePath();
+        ctx.fill();
+        ctx.fillStyle = trimColor;
+        ctx.fillRect(x - 12, y - 20, 24, 6);
+
+        if (type === 'frost') {
+            ctx.strokeStyle = '#D9F2FF';
+            ctx.lineWidth = 2;
+            ctx.beginPath();
+            ctx.moveTo(x - 4, y - 24);
+            ctx.lineTo(x - 8, y - 34);
+            ctx.moveTo(x + 4, y - 24);
+            ctx.lineTo(x + 8, y - 34);
+            ctx.moveTo(x - 14, y - 18);
+            ctx.lineTo(x - 18, y - 22);
+            ctx.stroke();
+        } else if (type === 'fire') {
+            ctx.strokeStyle = '#FFB97C';
+            ctx.lineWidth = 2;
+            ctx.beginPath();
+            ctx.moveTo(x - 10, y - 34);
+            ctx.quadraticCurveTo(x - 6, y - 46, x - 2, y - 38);
+            ctx.quadraticCurveTo(x + 2, y - 48, x + 8, y - 38);
+            ctx.quadraticCurveTo(x + 14, y - 32, x + 4, y - 24);
+            ctx.stroke();
+        } else if (type === 'air') {
+            ctx.strokeStyle = '#7AC5FF';
+            ctx.lineWidth = 2;
+            ctx.beginPath();
+            ctx.moveTo(x - 10, y - 28);
+            ctx.lineTo(x - 18, y - 36);
+            ctx.moveTo(x + 10, y - 28);
+            ctx.lineTo(x + 18, y - 36);
+            ctx.moveTo(x - 6, y - 26);
+            ctx.lineTo(x - 8, y - 32);
+            ctx.moveTo(x + 6, y - 26);
+            ctx.lineTo(x + 8, y - 32);
+            ctx.stroke();
+        } else if (type === 'sniper') {
+            ctx.strokeStyle = '#C1D68B';
+            ctx.lineWidth = 2;
+            ctx.beginPath();
+            ctx.moveTo(x - 14, y - 20);
+            ctx.lineTo(x + 14, y - 20);
+            ctx.moveTo(x + 10, y - 20);
+            ctx.lineTo(x + 18, y - 28);
+            ctx.stroke();
+            ctx.fillStyle = '#3D5C1C';
+            ctx.fillRect(x - 2, y + 4, 4, 12);
+        } else if (type === 'machine') {
+            ctx.strokeStyle = '#D6C18A';
+            ctx.lineWidth = 2;
+            ctx.beginPath();
+            ctx.moveTo(x - 12, y - 22);
+            ctx.lineTo(x + 12, y - 22);
+            ctx.moveTo(x - 10, y - 22);
+            ctx.lineTo(x - 18, y - 28);
+            ctx.moveTo(x + 10, y - 22);
+            ctx.lineTo(x + 18, y - 28);
+            ctx.stroke();
+            ctx.fillStyle = '#B5A16D';
+            ctx.fillRect(x - 14, y + 4, 28, 4);
+        }
+
+        // tower level badge
+        ctx.fillStyle = '#fff';
+        ctx.font = '12px system-ui';
+        ctx.textAlign = 'center';
+        ctx.fillText(tower.level, x, y + bodyHeight + 10);
     });
 
+    // draw slugs
     slugs.forEach(slug => {
-        if (slug.alive) {
-            ctx.fillStyle = slug.color;
-            ctx.fillRect(slug.x - 8, slug.y - 8, 16, 16);
-            ctx.fillStyle = '#90EE90';
-            ctx.fillRect(slug.x - 8, slug.y - 12, (slug.hp / slug.maxHp) * 16, 3);
+        if (!slug.alive) return;
+        const radiusX = slug.isBoss ? 32 : slug.type === 'fast' ? 14 : slug.flying ? 16 : 18;
+        const radiusY = slug.isBoss ? 20 : slug.flying ? 10 : 12;
+        const frozen = slug.frozenUntil > now;
+        const drawY = slug.y - slug.flyOffset;
+        ctx.fillStyle = frozen ? 'rgba(165,220,255,0.95)' : slug.color;
+        if (slug.isBoss) {
+            ctx.save();
+            ctx.shadowColor = 'rgba(248,196,0,0.45)';
+            ctx.shadowBlur = 14;
+        }
+        ctx.beginPath();
+        ctx.ellipse(slug.x, drawY, radiusX, radiusY, 0, 0, Math.PI * 2);
+        ctx.fill();
+        if (slug.isBoss) ctx.restore();
+        if (frozen) {
+            ctx.strokeStyle = 'rgba(215,245,255,0.9)';
+            ctx.lineWidth = 2;
+            ctx.beginPath();
+            ctx.ellipse(slug.x, drawY, radiusX + 4, radiusY + 4, 0, 0, Math.PI * 2);
+            ctx.stroke();
+        }
+        if (slug.burnUntil > now) {
+            ctx.save();
+            ctx.fillStyle = 'rgba(255,145,40,0.65)';
+            ctx.beginPath();
+            ctx.arc(slug.x + 4, drawY - 4, 6, 0, Math.PI * 2);
+            ctx.fill();
+            ctx.beginPath();
+            ctx.arc(slug.x - 5, drawY + 2, 4, 0, Math.PI * 2);
+            ctx.fill();
+            ctx.restore();
+        }
+        ctx.fillStyle = '#2F4F20';
+        ctx.fillRect(slug.x - radiusX/2, drawY - radiusY - 10, radiusX, 6);
+        if (slug.isBoss) {
+            ctx.fillStyle = '#FFF4B5';
+            ctx.font = 'bold 14px system-ui';
+            ctx.textAlign = 'center';
+            ctx.fillText('BOSS', slug.x, slug.y + 30);
+        }
+        const hpRatio = Math.max(slug.hp / slug.maxHp, 0);
+        const barWidth = slug.isBoss ? 68 : 48;
+        ctx.fillStyle = '#EA4C4C';
+        ctx.fillRect(slug.x - barWidth/2, slug.y - radiusY - 22, barWidth * hpRatio, 6);
+        ctx.strokeStyle = '#000';
+        ctx.strokeRect(slug.x - barWidth/2, slug.y - radiusY - 22, barWidth, 6);
+    });
+
+    splashEffects.forEach(effect => {
+        ctx.save();
+        ctx.strokeStyle = `rgba(255,245,190,${effect.alpha})`;
+        ctx.lineWidth = 2;
+        ctx.beginPath();
+        ctx.arc(effect.x, effect.y, effect.radius, 0, Math.PI * 2);
+        ctx.stroke();
+        ctx.fillStyle = `rgba(255,255,255,${effect.alpha * 0.25})`;
+        ctx.beginPath();
+        ctx.arc(effect.x + effect.radius * 0.16, effect.y - effect.radius * 0.1, 4, 0, Math.PI * 2);
+        ctx.arc(effect.x - effect.radius * 0.12, effect.y + effect.radius * 0.05, 3, 0, Math.PI * 2);
+        ctx.fill();
+        ctx.restore();
+    });
+
+    // draw projectiles
+    projectiles.forEach(proj => {
+        if (proj.fromTower.type === 'frost') {
+            ctx.fillStyle = '#A7E3FF';
+            ctx.shadowColor = 'rgba(167,227,255,0.75)';
+            ctx.shadowBlur = 8;
+        } else if (proj.fromTower.type === 'splash') {
+            ctx.fillStyle = '#FFF5C0';
+            ctx.shadowColor = 'rgba(255,245,192,0.5)';
+            ctx.shadowBlur = 6;
+        } else if (proj.fromTower.type === 'fire') {
+            ctx.fillStyle = '#FF9A38';
+            ctx.shadowColor = 'rgba(255,145,60,0.8)';
+            ctx.shadowBlur = 10;
+        } else {
+            ctx.fillStyle = '#FFFFFF';
+            ctx.shadowBlur = 0;
+        }
+        ctx.beginPath();
+        const size = proj.fromTower.type === 'frost' ? 6 : proj.fromTower.type === 'splash' ? 5 : proj.fromTower.type === 'fire' ? 7 : 5;
+        ctx.arc(proj.x, proj.y, size, 0, Math.PI * 2);
+        ctx.fill();
+        ctx.shadowBlur = 0;
+
+        if (proj.fromTower.type === 'splash') {
+            ctx.strokeStyle = 'rgba(255,245,192,0.75)';
+            ctx.lineWidth = 1.5;
+            ctx.beginPath();
+            ctx.arc(proj.x, proj.y, 10, 0, Math.PI * 2);
+            ctx.stroke();
+        }
+        if (proj.fromTower.type === 'fire') {
+            ctx.strokeStyle = 'rgba(255,180,105,0.75)';
+            ctx.lineWidth = 2;
+            ctx.beginPath();
+            ctx.arc(proj.x, proj.y, 11, 0, Math.PI * 2);
+            ctx.stroke();
         }
     });
+
+    if (saltEffect.active) {
+        const elapsed = now - saltEffect.start;
+        const intensity = 0.35 * Math.max(0, 1 - elapsed / saltEffect.duration);
+        ctx.save();
+        ctx.fillStyle = `rgba(245, 250, 255, ${intensity})`;
+        ctx.fillRect(0, 0, canvas.width, canvas.height);
+        saltEffect.particles.forEach(p => {
+            if (p.alpha <= 0) return;
+            ctx.fillStyle = `rgba(255,255,255,${p.alpha})`;
+            ctx.beginPath();
+            ctx.arc(p.x, p.y, p.radius, 0, Math.PI * 2);
+            ctx.fill();
+        });
+        ctx.restore();
+    }
+
+    if (fireEffect.active) {
+        const elapsed = now - fireEffect.start;
+        const intensity = 0.45 * Math.max(0, 1 - elapsed / fireEffect.duration);
+        ctx.save();
+        ctx.fillStyle = `rgba(255, 120, 40, ${intensity * 0.4})`;
+        ctx.fillRect(0, 0, canvas.width, canvas.height);
+        fireEffect.particles.forEach(p => {
+            if (p.alpha <= 0) return;
+            ctx.fillStyle = `rgba(255, 180, 60, ${p.alpha * 0.8})`;
+            ctx.beginPath();
+            ctx.arc(p.x, p.y, p.radius, 0, Math.PI * 2);
+            ctx.fill();
+        });
+        ctx.restore();
+    }
 }
 
-function gameLoop() {
+function gameLoop(timestamp) {
+    const dt = timestamp - lastFrameTime;
+    lastFrameTime = timestamp;
+    update(dt);
+    draw();
     if (gameRunning) {
-        const now = performance.now();
-        const dt = Math.min((now - lastFrameTime) / 1000, 0.05);
-        lastFrameTime = now;
-        update(dt);
-        draw();
-        updateDisplays();
+        requestAnimationFrame(gameLoop);
     }
-    requestAnimationFrame(gameLoop);
 }
 
 startButton.addEventListener('click', startGame);
-retryButton.addEventListener('click', () => location.reload());
-winRetryButton.addEventListener('click', () => location.reload());
+retryButton.addEventListener('click', startGame);
+winRetryButton.addEventListener('click', startGame);
 
 updateDisplays();
 </script>
 </body>
 </html>
+
+            
